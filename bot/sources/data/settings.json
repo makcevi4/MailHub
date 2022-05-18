@@ -1,1 +1,12 @@
-{}
+{
+  "main": {
+    "percentage": 1,
+    "currency": "USD",
+    "cryptocurrency": "BTC"
+  },
+  "prices": {
+    "demo": 0,
+    "week": 50,
+    "month": 100
+  }
+}

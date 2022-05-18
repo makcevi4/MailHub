@@ -1,18 +1,33 @@
 import time
+import json
 import sqlite3
 import schedule
 import configparser
 
+from telebot import types
+from redis import StrictRedis
 from westwallet_api import WestWalletAPI
+from datetime import datetime, timedelta
+from phpserialize import unserialize
+from telegram_bot_pagination import InlineKeyboardPaginator
+
+from sqlite3 import Error as SQLiteError
+from telebot.apihelper import ApiTelegramException
+from redis.exceptions import ConnectionError
 
 
 class Configs:
-    statuses = {'accepted': "принято", 'processing': "в процессе", 'rejected': "отклонено"}
-    payments = {'deposit': 'депозит'}
+    users = {'admin': 'администратор', 'user': 'пользователь'}
+    payments = {
+        'types':{'deposit': 'депозит'},
+        'statuses': {'accepted': "принято", 'processing': "в процессе", 'rejected': "отклонено"}}
     subscriptions = {
-        'trial': {'title': 'пробная', 'type': 'hour', 'duration': 2},
-        'week': {'title': 'недельная', 'type': 'day', 'duration': 7},
-        'month': {'title': 'недельная', 'type': 'day', 'duration': 30}
+        'types': {
+            'demo': {'title': 'пробная', 'type': 'hour', 'duration': 2},
+            'week': {'title': 'недельная', 'type': 'day', 'duration': 7},
+            'month': {'title': 'недельная', 'type': 'day', 'duration': 30}
+        },
+        'statuses': {'active': 'активна', 'inactive': 'неактивна'}
     }
 
     @staticmethod
@@ -50,22 +65,22 @@ class Configs:
 
                             configs[section][key] = data
 
-            # configs['statuses'] = self.statuses
-            # configs['payments'] = self.payments
-            # configs['subscriptions'] = self.subscriptions
+        configs['users'] = self.users
+        configs['payments'] = self.payments
+        configs['subscriptions'] = self.subscriptions
 
         return configs
 
 
 class Database:
-    tables = ['logs', 'users', 'payments', 'domains', 'mailings']
+    tables = ['logs', 'users', 'subscriptions', 'payments', 'domains', 'mailings']
 
     def __init__(self, configs):
         self.configs = configs
 
     @staticmethod
     def connect():
-        connection = sqlite3.connect('data/database.sqlite')
+        connection = sqlite3.connect('sources/data/database.sqlite')
         controller = connection.cursor()
         return connection, controller
 
@@ -91,10 +106,20 @@ class Database:
                     `id` INT NOT NULL,
                     `name` VARCHAR NOT NULL,
                     `registration` INT NOT NULL,
-                    `subscription` VARCHAR NOT NULL,
                     `balance` FLOAT NOT NULL,
                     `inviter` INT NOT NULL,
-                    `ban` INT NOT NULL
+                    `percentage` INT NOT NULL,
+                    `ban` INT NOT NULL,
+                    `cause` VARCHAR NOT NULL
+                    )"""
+                case 'subscriptions':
+                    query = f"""
+                    CREATE TABLE `{table}` (
+                    `type` VARCHAR NOT NULL,
+                    `user` INT NOT NULL,
+                    `status` VARCHAR NOT NULL,
+                    `purchased` INT NOT NULL,
+                    `expiration` INT NOT NULL
                     )"""
 
                 case 'payments':
@@ -133,8 +158,8 @@ class Database:
             connection.close()
             return True
 
-        except sqlite3.Error as error:
-            print(f"ERROR | Sqlite: {error}")
+        except SQLiteError as error:
+            print(f"ERROR | TYPE: SQLite | FUNC: {self.create_pure_table.__name__} | DESC: {error}")
             return False
 
     def delete_table(self, table):
@@ -151,8 +176,8 @@ class Database:
             else:
                 print(f"ERROR | Sqlite: Table {table} isn't recognize")
                 return False
-        except sqlite3.Error as error:
-            print(f"ERROR | Sqlite: {error}")
+        except SQLiteError as error:
+            print(f"ERROR | TYPE: SQLite | FUNC: {self.delete_table.__name__} | DESC: {error}")
             return False
 
     def recreate_table(self, value='all'):
@@ -197,8 +222,8 @@ class Database:
                                 f"""SELECT * FROM `{table}` WHERE `{value}` = '{data}' OR `{value_}` = '{data_}'""")
 
                 return controller.fetchall()
-            except sqlite3.Error as error:
-                print(f"ERROR | Sqlite: {error}")
+            except SQLiteError as error:
+                print(f"ERROR | TYPE: SQLite | FUNC: {self.get_data_by_value.__name__} | DESC: {error}")
                 return False
 
     def add_data(self, table, **items):
@@ -218,12 +243,24 @@ class Database:
                     case 'users':
                         query = f"""
                         INSERT INTO `{table}` (
-                        `id`, `name`, `registration`, `subscription`, `balance`, `inviter`, `ban`)
-                        VALUES ({items['id']}, '{items['name']}', {int(time.time())}, 'None', 0, {items['inviter']}, 0)
+                        `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, `ban`, `cause`)
+                        VALUES (
+                        {items['id']}, '{items['name']}', {int(time.time())}, 0, 
+                        {items['inviter']}, {items['percentage']}, 0, 'None')
+                        """
+
+                    case 'subscriptions':
+                        status = list(self.configs['subscriptions']['statuses'].keys())[0]
+
+                        query = f"""
+                        INSERT INTO `{table}` (`type`, `user`, `status`, `purchased`, `expiration`)
+                        VALUES (
+                        '{items['type']}', {items['user']}, '{status}', 
+                        {items['dates']['now']}, {items['dates']['expiration']})
                         """
 
                     case 'payments':
-                        status = list(self.configs['statuses'].keys())[1]
+                        status = list(self.configs['payments']['statuses'].keys())[1]
                         query = f"""
                         INSERT INTO `{table}` (`id`, `date`, `status`, `type`, `user`, `summary`, `expiration`)
                         VALUES (
@@ -251,8 +288,8 @@ class Database:
                     connection.close()
                     return True
 
-            except sqlite3.Error as error:
-                print(f"ERROR | Sqlite: {error}")
+            except SQLiteError as error:
+                print(f"ERROR | TYPE: SQLite | FUNC: {self.add_data.__name__} | DESC: {error}")
                 return False
         else:
             return False
@@ -282,8 +319,8 @@ class Database:
                 connection.commit()
                 connection.close()
                 return True
-            except sqlite3.Error as error:
-                print(f"ERROR | Sqlite: {error}")
+            except SQLiteError as error:
+                print(f"ERROR | TYPE: SQLite | FUNC: {self.change_data.__name__} | DESC: {error}")
                 return False
 
     def delete_data(self, table, value, data):
@@ -298,8 +335,8 @@ class Database:
                 connection.commit()
                 connection.close()
                 return True
-            except sqlite3.Error as error:
-                print(f"ERROR | Sqlite: {error}")
+            except SQLiteError as error:
+                print(f"ERROR | TYPE: SQLite | FUNC: {self.delete_data.__name__} | DESC: {error}")
                 return False
         else:
             return False
@@ -333,10 +370,10 @@ class Processes:
         self.buttons = buttons
 
     def payments(self):
-        print('payments')
+        pass
 
     def mailing(self):
-        print('mailing')
+        pass
 
     def run(self):
         schedule.every(1).seconds.do(
@@ -373,6 +410,143 @@ class Handler:
         self.configs = configs
         self.database = database
 
+    def initialization(self, mode, **data):
+        match mode:
+            case 'user':
+                users, log, additional = self.format('list', 'users', 'ids'), str(), None
+                username = self.format('str', 'user', 'username', first=data['first'], last=data['last'])
+
+                if data['user'] not in users:
+                    inviter, percentage = 0, self.file('read', 'settings')['main']['percentage']
+
+                    if len(data['commands']) == 2:
+                        inviter_data = self.database.get_data_by_value('users', 'id', data['commands'][1])
+                        additional = f"Пользователь использовал реферальный код `{data['commands'][1]}`, "
+                        if len(inviter_data) and not inviter_data[0][6]:
+                            inviter = inviter_data[0][0]
+                            additional += f"пригласитель [{inviter_data[0][1]}](tg://user?id={inviter_data[0][0]}) | " \
+                                          f"ID: {inviter_data[0][0]}."
+                        else:
+                            additional += "но пригласитель либо не найден, либо заблокирован."
+
+                    log = f"Добавлен новый пользователь [{username}](tg://user?id={data['user']}). " \
+                          f"{'' if additional is None else additional}"
+                    self.database.add_data('users', id=data['user'], name=username,
+                                           inviter=inviter, percentage=percentage)
+                else:
+                    log = "Пользователь использовал команду `/start` для запуска/перезапуска бота."
+
+                usertype = self.recognition('usertype', user=data['user'])
+                self.database.add_data('logs', userid=data['user'], username=username, usertype=usertype, action=log)
+
+    @staticmethod
+    def file(action, file, data=None):
+        filepath = str()
+        buffering = action[0] if action == 'read' or action == 'write' else 'r'
+
+        match file:
+            case 'processings':
+                filepath += 'sources/data/processings.json'
+            case 'settings':
+                filepath += 'sources/data/settings.json'
+
+        with open(filepath, buffering, encoding='utf-8') as file:
+            match action:
+                case 'read':
+                    return json.load(file)
+                case 'write':
+                    json.dump(data, file, ensure_ascii=False)
+
+    def calculate(self, mode, option=None, **data):
+        result = 0
+
+        match mode:
+            case 'subscription':
+                if option == 'dates':
+                    data = self.configs['subscriptions']['types'][data['type']]
+                    now, calculated = int(time.time()), 0
+
+                    current = datetime.fromtimestamp(now)
+
+                    match data['type']:
+                        case 'hour':
+                            calculated = current + timedelta(hours=data['duration'])
+                        case 'day':
+                            calculated = current + timedelta(days=data['duration'])
+
+                    expiration = int(calculated.timestamp())
+                    result = {'now': now, 'expiration': expiration}
+
+        return result
+
+    def format(self, mode, option, value, **data):
+        result = None
+
+        match mode:
+            case 'list':
+                result = list()
+
+                match option:
+                    case 'users':
+                        users = self.database.get_data('users')
+
+                        if value == 'ids':
+                            for user in users:
+                                result.append(user[0])
+
+            case 'dict':
+                result = dict()
+
+            case 'str':
+                result = str()
+
+                match option:
+                    case 'user':
+                        if value == 'username':
+                            name, surname = data['first'], data['last']
+
+                            if name == 'ᅠ' or name is None or name == '':
+                                name = 'Неизвестно'
+                            else:
+                                name = name
+
+                            if surname is None or surname == '':
+                                surname = ''
+                            else:
+                                surname = surname
+
+                            result = f"{name}{f' {surname}' if surname != '' else surname}"
+
+            case 'int':
+                result = 0
+
+        return result
+
+    def recognition(self, mode, option=None, **data):
+        result = None
+
+        match mode:
+            case 'ban':
+                if option == 'user':
+                    userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
+                    result = True if userdata[6] else False
+                elif option == 'cause':
+                    match data['cause']:
+                        case 'abuse':
+                            result = 'абьюз сервиса или попытка нарушить работоспособность сервиса, или его процессов'
+                        case _:
+                            result = 'причину блокировки можешь узнать у администрации сервиса'
+
+            case 'usertype':
+                result = 'admin' if data['user'] in self.configs['main']['admins'] else 'user'
+
+            case 'subscription':
+                if option == 'price':
+                    settings = self.file('read', 'settings')
+                    prices, currency = settings['prices'], settings['main']['currency']
+                    result = "Бесплатно" if prices[data['type']] == 0 else f"{prices[data['type']]} {currency}"
+        return result
+
 
 class Texts:
     def __init__(self, configs, database, handler):
@@ -380,9 +554,86 @@ class Texts:
         self.database = database
         self.handler = handler
 
+    def menu(self, usertype, mode, **data):
+        text = str()
+
+        match usertype:
+            case 'admin':
+                match mode:
+                    case 'main':
+                        text = "*АДМИН-ПАНЕЛЬ*\n\n" \
+                               f"✏️ Логов: {0}\n" \
+                               f"👥 Пользователей: {0}\n" \
+                               f"📨 Рассылок: {0}\n" \
+                               f"⭐️ Подписок: {0}\n\n" \
+                               f"*Цены на подписки*\n" \
+                               f" - Пробная: " \
+                               f"*{self.handler.recognition('subscription', 'price', type='demo')}*\n" \
+                               f" - Недельная: " \
+                               f"*{self.handler.recognition('subscription', 'price', type='week')}*\n" \
+                               f" - Месячная: " \
+                               f"*{self.handler.recognition('subscription', 'price', type='month')}*\n\n" \
+                               f"🔽 Выбери действие 🔽"
+
+            case 'user':
+                userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
+
+                match mode:
+                    case 'main':
+                        currency = self.handler.file('read', 'settings')['main']['currency']
+
+                        text = "*ГЛАВНОЕ МЕНЮ*\n\n" \
+                               f"💰 Баланс: *{0} {currency}*\n" \
+                               f"⭐️ Текущая подписка: *{'None'}*\n"
+                        # if userdata[3] != 'None':
+                        #     text += f"Подписка истекает: *{0}*\n"
+
+                        text += f"📨 Рассылки: *{0}* шт.\n" \
+                                f"🔗 Реферальная ссылка: {'None'}\n" \
+                                f"*Подписки*\n" \
+                                f" - Пробная: " \
+                                f"*{self.handler.recognition('subscription', 'price', type='demo')}*\n" \
+                                f" - Недельная: " \
+                                f"*{self.handler.recognition('subscription', 'price', type='week')}*\n" \
+                                f" - Месячная: " \
+                                f"*{self.handler.recognition('subscription', 'price', type='month')}*\n\n" \
+                                f"*Сервисы*\n" \
+                                f" - None\n\n"
+
+                        text += "🔽 Выбери действие 🔽"
+
+
+        return text
+
+    def error(self, mode, **data):
+        text = "🚫 *Ошибка*\n\n⚠️ "
+
+        match mode:
+            case 'banned':
+                userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
+                cause = self.handler.recognition('ban', 'cause', cause=userdata[7])
+                text += "Ты был заблокирован администрацией, за нарушение правил использования сервиса.\n\n" \
+                        f"📍 *Причина*: {cause}.\n\n" \
+                        "📌 Если ты считаешь это ошибкой, то ты можешь обратиться в поддержку, " \
+                        "для решения текущего вопроса.\n\n" \
+                        "🔽 Обратиться в поддержку 🔽"
+
+        return text
+
 
 class Buttons:
     def __init__(self, configs, database, handler):
         self.configs = configs
         self.database = database
         self.handler = handler
+
+    def support(self):
+        markup = types.InlineKeyboardMarkup()
+        return markup.add(
+            types.InlineKeyboardButton('☎️ Поддержка', url=f"tg://user?id={self.configs['main']['support']}")
+        )
+
+if __name__ == '__main__':
+    _configs = Configs().initialization()
+    _database = Database(_configs)
+    _database.recreate_table()

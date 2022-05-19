@@ -1,7 +1,10 @@
 import time
 import json
+import string
+import random
 import sqlite3
 import schedule
+import requests
 import configparser
 
 from telebot import types
@@ -362,6 +365,16 @@ class Sessions:
             case 'user':
                 self.users[identifier] = template
 
+    def clear(self, usertype, user):
+        try:
+            match usertype:
+                case 'admin':
+                    del self.admins[user]
+                case 'user':
+                    del self.users[user]
+        except KeyError:
+            pass
+
 
 class Processes:
     def __init__(self, bot, texts, buttons):
@@ -419,15 +432,18 @@ class Handler:
                 if data['user'] not in users:
                     inviter, percentage = 0, self.file('read', 'settings')['main']['percentage']
 
-                    if len(data['commands']) == 2:
-                        inviter_data = self.database.get_data_by_value('users', 'id', data['commands'][1])
-                        additional = f"Пользователь использовал реферальный код `{data['commands'][1]}`, "
-                        if len(inviter_data) and not inviter_data[0][6]:
-                            inviter = inviter_data[0][0]
-                            additional += f"пригласитель [{inviter_data[0][1]}](tg://user?id={inviter_data[0][0]}) | " \
-                                          f"ID: {inviter_data[0][0]}."
-                        else:
-                            additional += "но пригласитель либо не найден, либо заблокирован."
+                    try:
+                        if len(data['commands']) == 2:
+                            inviter_data = self.database.get_data_by_value('users', 'id', data['commands'][1])
+                            additional = f"Пользователь использовал реферальный код `{data['commands'][1]}`, "
+                            if len(inviter_data) and not inviter_data[0][6]:
+                                inviter = inviter_data[0][0]
+                                additional += f"пригласитель [{inviter_data[0][1]}](tg://user?id={inviter_data[0][0]}) | " \
+                                              f"ID: {inviter_data[0][0]}."
+                            else:
+                                additional += "но пригласитель либо не найден, либо заблокирован."
+                    except KeyError:
+                        pass
 
                     log = f"Добавлен новый пользователь [{username}](tg://user?id={data['user']}). " \
                           f"{'' if additional is None else additional}"
@@ -436,8 +452,9 @@ class Handler:
                 else:
                     log = "Пользователь использовал команду `/start` для запуска/перезапуска бота."
 
-                usertype = self.recognition('usertype', user=data['user'])
-                self.database.add_data('logs', userid=data['user'], username=username, usertype=usertype, action=log)
+                if 'commands' in data.keys():
+                    usertype = self.recognition('usertype', user=data['user'])
+                    self.database.add_data('logs', userid=data['user'], username=username, usertype=usertype, action=log)
 
     @staticmethod
     def file(action, file, data=None):
@@ -479,7 +496,7 @@ class Handler:
 
         return result
 
-    def format(self, mode, option, value, **data):
+    def format(self, mode, option=None, value=None, **data):
         result = None
 
         match mode:
@@ -496,6 +513,14 @@ class Handler:
 
             case 'dict':
                 result = dict()
+
+                match option:
+                    case 'currencies-convert':
+                        summary, settings = data['summary'], self.file('read', 'settings')['main']
+                        cryptocurrency, currency = settings['cryptocurrency'], settings['currency']
+                        courses = requests.get(f'https://api.kuna.io/v3/exchange-rates/{cryptocurrency.lower()}').json()
+                        amount = round(summary / courses[currency.lower()] if summary != 0 else summary, 5)
+                        result = {currency: summary, cryptocurrency: amount}
 
             case 'str':
                 result = str()
@@ -545,7 +570,47 @@ class Handler:
                     settings = self.file('read', 'settings')
                     prices, currency = settings['prices'], settings['main']['currency']
                     result = "Бесплатно" if prices[data['type']] == 0 else f"{prices[data['type']]} {currency}"
+
+                elif option == 'user':
+                    template = '%H:%M:%S / %d.%m.%Y'
+                    subscriptions = self.database.get_data_by_value('subscriptions', 'user', data['user'])
+
+                    if len(subscriptions):
+                        for subscription in subscriptions:
+                            if subscription[2] == 'active':
+                                result = {
+                                    'title': self.configs['subscriptions']['types'][subscription[0]]['title'],
+                                    'expiration': datetime.fromtimestamp(subscription[4]).strftime(template)
+                                }
+
+            case 'abuse':
+                result, action = False, data['action']
+
+                actions = [
+                    '👨🏻‍💻 Пользователи', '🛠 Сервисы', '⭐️ Проект'
+                ]
+
+                if action in actions:
+                    if data['user'] not in self.configs['main']['admins']:
+                        result, user = True, self.database.get_data_by_value('users', 'id', data['user'])[0]
+                        bot, texts, buttons = data['bot'], data['texts'], data['buttons']
+
+                        self.database.change_data('users', 'ban', 1, user[0])
+                        self.database.change_data('users', 'cause', 'abuse', user[0])
+                        self.database.add_data('logs', id=self.generate('unique-id'), userid=user[0],
+                                               username=user[1], usertype=data['usertype'],
+                                               action=texts.logs('abuse', 'action', action=action))
+
+                        bot.send_message(user[0], texts.error('banned', user=user[0]), parse_mode='markdown',
+                                         reply_markup=buttons.support())
+
         return result
+
+    def generate(self, mode):
+        match mode:
+            case 'unique-id':
+                chars = string.ascii_uppercase + string.ascii_lowercase + string.digits
+                return ''.join(random.choice(chars) for x in range(random.randint(10, 12)))
 
 
 class Texts:
@@ -561,18 +626,26 @@ class Texts:
             case 'admin':
                 match mode:
                     case 'main':
+                        settings = self.handler.file('read', 'settings')
+                        prices = settings['prices']
+                        currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
+
+                        demo = self.handler.format('dict', 'currencies-convert', summary=prices['demo'])
+                        week = self.handler.format('dict', 'currencies-convert', summary=prices['week'])
+                        month = self.handler.format('dict', 'currencies-convert', summary=prices['month'])
+
                         text = "*АДМИН-ПАНЕЛЬ*\n\n" \
-                               f"✏️ Логов: {0}\n" \
-                               f"👥 Пользователей: {0}\n" \
-                               f"📨 Рассылок: {0}\n" \
-                               f"⭐️ Подписок: {0}\n\n" \
+                               f"✏️ Логов: *{len(self.database.get_data('logs'))}*\n" \
+                               f"👥 Пользователей: *{len(self.database.get_data('users'))}*\n" \
+                               f"📨 Рассылок: *{len(self.database.get_data('mailings'))}*\n" \
+                               f"⭐️ Подписок: *{len(self.database.get_data('subscriptions'))}*\n\n" \
                                f"*Цены на подписки*\n" \
                                f" - Пробная: " \
-                               f"*{self.handler.recognition('subscription', 'price', type='demo')}*\n" \
+                               f"*{demo[currency]} {currency} ({demo[cryptocurrency]} {cryptocurrency})*\n" \
                                f" - Недельная: " \
-                               f"*{self.handler.recognition('subscription', 'price', type='week')}*\n" \
+                               f"*{week[currency]} {currency} ({week[cryptocurrency]} {cryptocurrency})*\n" \
                                f" - Месячная: " \
-                               f"*{self.handler.recognition('subscription', 'price', type='month')}*\n\n" \
+                               f"*{month[currency]} {currency} ({month[cryptocurrency]} {cryptocurrency})*\n\n" \
                                f"🔽 Выбери действие 🔽"
 
             case 'user':
@@ -581,15 +654,20 @@ class Texts:
                 match mode:
                     case 'main':
                         currency = self.handler.file('read', 'settings')['main']['currency']
+                        subscription = self.handler.recognition('subscription', 'user', user=userdata[0])
 
                         text = "*ГЛАВНОЕ МЕНЮ*\n\n" \
                                f"💰 Баланс: *{0} {currency}*\n" \
-                               f"⭐️ Текущая подписка: *{'None'}*\n"
-                        # if userdata[3] != 'None':
-                        #     text += f"Подписка истекает: *{0}*\n"
+                               f"⭐️ Текущая подписка: " \
+                               f"*{'Нет' if subscription is None else subscription['title']}*\n"
 
-                        text += f"📨 Рассылки: *{0}* шт.\n" \
-                                f"🔗 Реферальная ссылка: {'None'}\n" \
+                        if subscription is not None:
+                            text += f"🗓 Подписка истекает: *{subscription['expiration']}*\n"
+
+                        text += f"📨 Рассылки: " \
+                                f"*{len(self.database.get_data_by_value('mailings', 'user', userdata[0]))}* шт.\n" \
+                                f"🔗 Реферальная ссылка:\n" \
+                                f"`https://t.me/{self.configs['bot']['login']}?start={userdata[0]}`\n" \
                                 f"*Подписки*\n" \
                                 f" - Пробная: " \
                                 f"*{self.handler.recognition('subscription', 'price', type='demo')}*\n" \
@@ -602,8 +680,22 @@ class Texts:
 
                         text += "🔽 Выбери действие 🔽"
 
+        return text
+
+    def logs(self, mode, option, **data):
+        text = str()
+
+        match mode:
+            case 'abuse':
+                if option == 'start':
+                    pass
+                elif option == 'action':
+                    text = f"Попытался воспользоваться командой «{data['action']}», но не смог. Скорее этот человек " \
+                           f"пытается абьюзить бота или ищет дырки, поэтому он был автоматически забанен."
 
         return text
+
+
 
     def error(self, mode, **data):
         text = "🚫 *Ошибка*\n\n⚠️ "
@@ -632,6 +724,50 @@ class Buttons:
         return markup.add(
             types.InlineKeyboardButton('☎️ Поддержка', url=f"tg://user?id={self.configs['main']['support']}")
         )
+
+    def menu(self, usertype, menu, additional=False, markups_type='reply', width=2, **data):
+        markup, comeback, query = None, True, None
+
+        if markups_type == 'reply':
+            markup = types.ReplyKeyboardMarkup(row_width=width, resize_keyboard=True)
+        elif markups_type == 'inline':
+            markup = types.InlineKeyboardMarkup()
+
+        match usertype:
+            case 'admin':
+                match menu:
+                    case 'main':
+                        comeback = False
+                        markup.add(
+                            types.KeyboardButton('👨🏻‍💻 Пользователи'),
+                            types.KeyboardButton('🛠 Сервисы'),
+                            types.KeyboardButton('⭐️ Проект')
+                        )
+            case 'user':
+                match menu:
+                    case 'main':
+                        comeback = False
+                        markup.add(
+                            types.KeyboardButton('⚙️ Сервисы'),
+                            types.KeyboardButton('⭐️ Подписки'),
+                            types.KeyboardButton('🗞 Информация')
+                        )
+
+        if comeback:
+            if markups_type == 'reply':
+                if usertype == 'user':
+                    markup.add(types.KeyboardButton('↩️ Назад к профилю'))
+                elif usertype == 'admin':
+                    markup.add(types.KeyboardButton(f'↩️ Назад к {"админ панели" if comeback is True else comeback}'))
+
+                else:
+                    markup.add(types.KeyboardButton(f'↩️ Назад к '
+                                                    f'{"главной панели" if comeback is True else comeback}'))
+            else:
+                markup.add(types.InlineKeyboardButton("↩️ Назад", callback_data=f"comeback-to-{query}"))
+
+        return markup
+
 
 if __name__ == '__main__':
     _configs = Configs().initialization()

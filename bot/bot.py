@@ -16,14 +16,14 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
             match commands[0]:
                 case 'start':
                     bot.send_message(message.chat.id, texts.menu('user', 'main', user=message.from_user.id),
-                                     parse_mode='markdown', reply_markup='')
+                                     parse_mode='markdown', reply_markup=buttons.menu('user', 'main'))
 
                 case 'admin':
                     usertype = handler.recognition('usertype', user=message.from_user.id)
 
                     if usertype == 'admin':
                         bot.send_message(message.chat.id, texts.menu('admin', 'main'), parse_mode='markdown',
-                                         reply_markup='')
+                                         reply_markup=buttons.menu('admin', 'main'))
                     else:
                         username = database.get_data_by_value('users', 'id', message.from_user.id)[0][1]
                         database.change_data('users', 'ban', 1, message.from_user.id)
@@ -41,8 +41,44 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
     @bot.message_handler(content_types=['text'])
     def text_handler(message):
-        # dates = handler.calculate('subscription', 'dates', type='demo')
-        print(message.text)
+        # dates = handler.calculate('subscription', 'dates', type='demo') # now, expiration
+
+        handler.initialization('user', user=message.from_user.id,
+                               first=message.from_user.first_name,
+                               last=message.from_user.last_name)
+
+        if handler.recognition('ban', 'user', user=message.from_user.id):
+            bot.send_message(message.chat.id, texts.error('banned', user=message.from_user.id), parse_mode='markdown',
+                             reply_markup=buttons.support())
+        else:
+            usertype = handler.recognition('usertype', user=message.from_user.id)
+
+            # Buttons handling | Comeback
+            if '↩️ Назад к' in message.text:
+                sessions.clear(usertype, message.from_user.id)
+
+                if usertype == 'admin':
+                    pass
+
+            # Buttons handling | Cancel
+            if '❌ Отменить' in message.text:
+                sessions.clear(usertype, message.from_user.id)
+
+                if usertype == 'admin':
+                    pass
+
+            #  - ADMIN
+            abuse = handler.recognition('abuse', action=message.text, user=message.from_user.id, usertype=usertype,
+                                        bot=bot, texts=texts, buttons=buttons)
+            print(abuse)
+            if message.text == '👨🏻‍💻 Пользователи' and not abuse:
+                print('do')
+                    # bot.send_message(message.from_user.id, generator.menu('admin', 'users'),
+                    #                  parse_mode='markdown', reply_markup=buttons.menu('admin', 'users'))
+
+
+            # - USER
+
 
     @bot.callback_query_handler(func=lambda call: True)
     def queries_handler(call):

@@ -1,3 +1,4 @@
+import ast
 import time
 import json
 import string
@@ -474,6 +475,38 @@ class Handler:
                 case 'write':
                     json.dump(data, file, ensure_ascii=False)
 
+    @staticmethod
+    def paginator(character_pages, option, page=1, close=True, **data):
+        pattern = f"set-page-{option}-" + "{page}"
+
+        try:
+            if len(option.replace('-', ' ').split()) > 1 and 'user' in option:
+                pattern = f"set-page-{option}-{data['id']}-" + "{page}"
+        except KeyError:
+            pass
+
+        paginator = InlineKeyboardPaginator(
+            len(character_pages),
+            current_page=page,
+            data_pattern=pattern
+        )
+
+        try:
+            if close:
+                markups = ast.literal_eval(paginator.markup)
+                markups['inline_keyboard'].append([{"text": "❌", "callback_data": "close-page"}])
+                markups = str(markups).replace('\'', '"')
+            else:
+                markups = paginator.markup
+        except ValueError:
+            if close:
+                markups = types.InlineKeyboardMarkup()
+                markups.add(types.InlineKeyboardButton('❌', callback_data=f"close-page"))
+            else:
+                markups = paginator.markup
+
+        return character_pages[page - 1], markups
+
     def calculate(self, mode, option=None, **data):
         result = 0
 
@@ -648,11 +681,19 @@ class Texts:
                                f"*{month[currency]} {currency} ({month[cryptocurrency]} {cryptocurrency})*\n\n" \
                                f"🔽 Выбери действие 🔽"
 
+                    case 'users':
+                        text += "*Пользователи*\n\n" \
+                                "📍 Доступные действия:\n" \
+                                "1️⃣ Просмотр всех пользователей\n" \
+                                "2️⃣ Просмотр и изменение данных пользователя\n\n" \
+                                "🔽 Выбери действие 🔽"
+
             case 'user':
                 userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
 
                 match mode:
                     case 'main':
+                        # f"`https://t.me/{self.configs['bot']['login']}?start={userdata[0]}`\n"
                         currency = self.handler.file('read', 'settings')['main']['currency']
                         subscription = self.handler.recognition('subscription', 'user', user=userdata[0])
 
@@ -665,9 +706,7 @@ class Texts:
                             text += f"🗓 Подписка истекает: *{subscription['expiration']}*\n"
 
                         text += f"📨 Рассылки: " \
-                                f"*{len(self.database.get_data_by_value('mailings', 'user', userdata[0]))}* шт.\n" \
-                                f"🔗 Реферальная ссылка:\n" \
-                                f"`https://t.me/{self.configs['bot']['login']}?start={userdata[0]}`\n" \
+                                f"*{len(self.database.get_data_by_value('mailings', 'user', userdata[0]))}* шт.\n\n" \
                                 f"*Подписки*\n" \
                                 f" - Пробная: " \
                                 f"*{self.handler.recognition('subscription', 'price', type='demo')}*\n" \
@@ -682,7 +721,107 @@ class Texts:
 
         return text
 
-    def logs(self, mode, option, **data):
+    def show(self, mode, additional=None, amount=5, reverse=True, option=None, **data):
+        array, text, i = list(), '', 0
+        separated = list()
+
+        match mode:
+            case 'log':
+                item = data['item']
+                text += f"👤 Пользователь: [{item[1]}](tg://user?id={item[0]}) | ID:`{item[0]}`\n" \
+                        f"⚙️ Тип: {self.configs['main']['types']['user'][item[2]].capitalize()}\n" \
+                        f"🗓 Дата: {datetime.fromtimestamp(item[3]).strftime('%H:%M:%S / %d.%m.%Y')}\n" \
+                        f"🔔 Действие: {item[4]}"
+
+                return text
+
+            case 'user':
+                item = data['item']
+                currency = self.handler.file('read', 'settings')['main']['currency']
+                subscription = self.handler.recognition('subscription', 'user', user=item[0])
+
+                text += f"👤 Имя: [{item[1]}](tg://user?id={item[0]}) | ID:`{item[0]}`\n" \
+                        f"🗓 Дата регистрации: {datetime.fromtimestamp(item[2]).strftime('%H:%M:%S / %d.%m.%Y')}\n" \
+                        f"💰 Баланс: *{item[3]} {currency}*\n" \
+                        f"🚫 Бан: {'❎' if not item[6] else '✅'}\n" \
+                        f"🛍 Подписок: *{len(self.database.get_data_by_value('subscriptions', 'user', item[0]))}*"
+
+                if subscription is not None:
+                    text += f"\n⭐️ Подписка: *{subscription['title']}*\n" \
+                            f"🗓 Подписка истекает: *{subscription['expiration']}*\n"
+
+                if additional == 'full':
+                    inviter = False if not item[4] else self.database.get_data_by_value('users', 'id', item[4])[0]
+                    inviter = '*Без пригласителя*' if not inviter else f'[{inviter[1]}](tg://user?id={inviter[0]}) | ' \
+                                                                       f'ID:`{inviter[0]}`'
+                    text += f"\n🤝 Пригласил: {inviter}\n" \
+                            f"🔗 Приглашено: *{len(self.database.get_data_by_value('users', 'inviter', item[0]))}*\n" \
+                            f"💳 Платежей: *{len(self.database.get_data_by_value('payments', 'user', item[0]))}*\n" \
+                            f"📨 Рассылок: *{len(self.database.get_data_by_value('mailings', 'user', item[0]))}*\n" \
+                            f"⚙️ Действий : *{len(self.database.get_data_by_value('logs', 'userid', item[0]))}*"
+
+                return text
+
+            case _:
+                array = data['array']
+
+        for item in array[::-1] if reverse else array:
+            value, result = None, None
+
+            if i % amount == 0 and text != '':
+                separated.append(text)
+                text = ''
+
+            match mode:
+                case 'logs':
+                    value = 'Лог'
+                    result = self.show('log', item=item)
+
+                case 'users':
+                    value = 'Пользователь'
+                    result = self.show('user', item=item)
+
+            text += f"{value} #{len(array) - i if reverse else i + 1}\n" \
+                    f"{result}\n\n"
+            i += 1
+
+        separated.append(text)
+        return separated
+
+    def control(self, mode, option=None, **data):
+        text = str()
+        match mode:
+            case 'user':
+                userdata = self.database.get_data_by_value('users', 'id', data['id'])[0]
+
+                match option:
+                    case 'ban':
+                        status = True if userdata[6] else False
+                        text = "*Блокировка/разблокировка*\n\n" \
+                               f"📌 Текущий статус: {'🟢 Не заблокирован' if not status else '🔴 Заблокирован'}\n\n" \
+                               f"⚠️ Чтобы {'заблокировать' if not status else 'разблокировать'} пользователя, " \
+                               f"нажми кнопку {'блокировки' if not status else 'разблокировки'} ниже.\n\n" \
+                               f"🔽 {'Заблокировать пользователя' if not status else 'Разблокировать пользователя'} 🔽"
+
+        return text
+
+    def processes(self, user, mode, option=None, step=1, **data):
+        text = str()
+
+        match user:
+            case 'admin':
+                if mode == 'find-user':
+                    text += "*Поиск пользователя*\n\n" \
+                            "📌 Для того, чтобы найти пользователя, введи его ID. " \
+                            "В противном случае отмени действие.\n\n" \
+                            "🔽 Введи идентификатор 🔽"
+
+            case 'user':
+                pass
+
+        return text
+
+    def logs(self, mode, option=None, value=None, **data):
         text = str()
 
         match mode:
@@ -692,12 +831,16 @@ class Texts:
                 elif option == 'action':
                     text = f"Попытался воспользоваться командой «{data['action']}», но не смог. Скорее этот человек " \
                            f"пытается абьюзить бота или ищет дырки, поэтому он был автоматически забанен."
+            case 'admin':
+                match option:
+                    case 'user':
+                        if value == 'ban':
+                            text = f"{'Забанил' if data['status'] else 'Разбанил'} пользователя " \
+                                   f"[{data['name']}](tg://user?id={data['id']}) | ID:`{data['id']}`."
 
         return text
 
-
-
-    def error(self, mode, **data):
+    def error(self, mode, option=None, **data):
         text = "🚫 *Ошибка*\n\n⚠️ "
 
         match mode:
@@ -709,6 +852,40 @@ class Texts:
                         "📌 Если ты считаешь это ошибкой, то ты можешь обратиться в поддержку, " \
                         "для решения текущего вопроса.\n\n" \
                         "🔽 Обратиться в поддержку 🔽"
+
+            case 'empty':
+                values = {'first': None, 'second': None, 'third': None}
+
+                match option:
+                    case 'users':
+                        values['first'], values['second'], values['third'] = \
+                            "пользователей", "пользователя", "пользователь"
+
+                text = "❌ *Нечего искать* ❌\n\n" \
+                       f"⚠️ К сожалению база {values['first']} ещё пуста, не добавлено ни единого " \
+                       f"{values['second']} и поэтому некого искать. Эта функция станет доступной тогда, " \
+                       f"когда будет добавлен первый {values['third']}."
+
+            case 'not-found':
+                value = None
+
+                match option:
+                    case 'user':
+                        value = 'пользователь'
+
+                text += f"{value.capitalize()} с идентификатором «*{data['id']}*» не найден. "
+
+        return text
+
+    def success(self, mode, option=None, **data):
+        text = "✅ *Успешно* ✅\n\n🔔"
+
+        match mode:
+            case 'found-data':
+                text = "*Поиск завершён успешно* ✅\n\n🔔"
+
+                if option == 'user':
+                    text += f"Пользователь с идентификатором «*{data['id']}*» был успешно найден, формируем данные..."
 
         return text
 
@@ -724,6 +901,34 @@ class Buttons:
         return markup.add(
             types.InlineKeyboardButton('☎️ Поддержка', url=f"tg://user?id={self.configs['main']['support']}")
         )
+
+    @staticmethod
+    def cancel_reply(text):
+        markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+        return markup.add(types.KeyboardButton(f'❌ Отменить {text}'))
+
+    @staticmethod
+    def cancel_inline(action, user=None, additional=None):
+        markup = types.InlineKeyboardMarkup()
+        query = f'cancel-{action}-{user}' if user else f'cancel-{action}'
+        return markup.add(types.InlineKeyboardButton(
+            '🚫 Отменить', callback_data=f"{f'{query}-{additional}' if additional is not None else query}"))
+
+    @staticmethod
+    def comeback_reply(text):
+        markup = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
+        return markup.add(types.KeyboardButton(f'↩️ Назад к {text}'))
+
+    @staticmethod
+    def comeback_inline(action, text=None, **data):
+        markup = types.InlineKeyboardMarkup()
+        try:
+            query = f"comeback-{action}-{data['id']}"
+        except KeyError:
+            query = f"comeback-{action}"
+
+        return markup.add(types.InlineKeyboardButton(
+            '↩️ Назад' if text is None else f'↩️ Назад к {text}', callback_data=query))
 
     def menu(self, usertype, menu, additional=False, markups_type='reply', width=2, **data):
         markup, comeback, query = None, True, None
@@ -743,6 +948,55 @@ class Buttons:
                             types.KeyboardButton('🛠 Сервисы'),
                             types.KeyboardButton('⭐️ Проект')
                         )
+
+                    case 'users':
+                        markup.add(
+                            types.KeyboardButton('👁 Посмотреть всех'),
+                            types.KeyboardButton('🕹 Управлять')
+                        )
+
+                    case 'user':
+                        comeback = False
+                        user = data['id']
+                        markup, markups, row, additional = dict(), list(), list(), dict()
+
+                        items = {
+                            '⛔️ Блокировка': {'type': 'control', 'action': 'ban'},
+                            '💰 Баланс': {'type': 'control', 'action': 'balance'},
+                        }
+
+                        if len(self.database.get_data_by_value('logs', 'userid', user)):
+                            items['⚙️ Действия'] = {'type': 'get', 'action': 'logs'}
+
+                        if len(self.database.get_data_by_value('payments', 'user', user)):
+                            items['💳 Платежи'] = {'type': 'get', 'action': 'payments'}
+
+                        if len(self.database.get_data_by_value('subscriptions', 'user', user)):
+                            items['⭐️ Подписки'] = {'type': 'get', 'action': 'subscriptions'}
+
+                        if len(self.database.get_data_by_value('mailings', 'user', user)):
+                            items['📨 Рассылки'] = {'type': 'get', 'action': 'mailings'}
+
+                        for name, values in items.items():
+                            if len(row) < width:
+                                row.append({
+                                    'text': name,
+                                    'callback_data': f'{values["type"]}-user-{user}-{values["action"]}'
+                                })
+                                if values["action"] == 'ban':
+                                    markups.append(row)
+                                    row = list()
+
+                            if len(row) == width:
+                                markups.append(row)
+                                row = list()
+                        else:
+                            if len(row) != 0:
+                                markups.append(row)
+
+                        markup['inline_keyboard'] = markups
+                        markup = str(markup).replace('\'', '"')
+
             case 'user':
                 match menu:
                     case 'main':
@@ -765,6 +1019,35 @@ class Buttons:
                                                     f'{"главной панели" if comeback is True else comeback}'))
             else:
                 markup.add(types.InlineKeyboardButton("↩️ Назад", callback_data=f"comeback-to-{query}"))
+
+        return markup
+
+    def control(self, mode, option=None, **data):
+        markup = types.InlineKeyboardMarkup()
+
+        match mode:
+            case 'user':
+                comeback, cancel, query = True, False, None
+                userdata = self.database.get_data_by_value('users', 'id', data['id'])[0]
+
+                match option:
+                    case 'ban':
+                        status = True if userdata[6] else False
+                        markup.add(types.InlineKeyboardButton(
+                            "🔴 Забанить" if not status else "🟢 Разбанить",
+                            callback_data=f"set-ban-{True if not status else False}-user-{userdata[0]}"))
+
+                if comeback:
+                    markup.add(
+                        types.InlineKeyboardButton("↩️ Назад", callback_data=f"comeback-to-user-menu-{userdata[0]}"))
+
+                if cancel:
+                    markup.add(
+                        types.InlineKeyboardButton(f"🚫 Отменить{'' if type(cancel) == bool else f' {cancel}'}",
+                                                   callback_data=f"cancel-{query}"))
+
+            case 'admin':
+                pass
 
         return markup
 

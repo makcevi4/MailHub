@@ -1,0 +1,9 @@
+RewriteEngine On
+
+#RewriteCond %{HTTPS} =off
+#RewriteRule (.*) https://%{HTTP_HOST}%{REQUEST_URI} [QSA,L]
+
+RewriteBase /
+RewriteRule ^router\.php$ - [L]
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^(.*)$ /router.php?query=$1 [QSA]

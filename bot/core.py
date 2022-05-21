@@ -803,6 +803,16 @@ class Texts:
                                f"нажми кнопку {'блокировки' if not status else 'разблокировки'} ниже.\n\n" \
                                f"🔽 {'Заблокировать пользователя' if not status else 'Разблокировать пользователя'} 🔽"
 
+                    case 'balance':
+                        currency = self.handler.file('read', 'settings')['main']['currency']
+                        summary = self.database.get_data_by_value('users', 'id', data['id'])[0][3]
+                        text += "*Баланс*\n\n" \
+                                f"💰 Текущий баланс: *{summary} {currency}*\n\n" \
+                                "📍 Возможные действия:\n" \
+                                "1️⃣ Добавить средства\n" \
+                                "2️⃣ Изменить баланс\n\n" \
+                                "🔽 Выбери действие 🔽"
+
         return text
 
     def processes(self, user, mode, option=None, step=1, **data):
@@ -817,7 +827,18 @@ class Texts:
                             "🔽 Введи идентификатор 🔽"
 
             case 'user':
-                pass
+                match mode:
+                    case 'balance':
+                        if option == 'add':
+                            text = "*Добавление средств*\n\n" \
+                                   "📌 Для того, чтобы добавить средства, введи значение в числовом формате. " \
+                                   "В противном  случае отмени действие.\n\n" \
+                                   "🔽 Введи значение 🔽"
+                        elif option == 'change':
+                            text = "*Изменение баланса*\n\n" \
+                                   "📌 Для того, чтобы изменить баланс, введи значение в числовом формате. " \
+                                   "В противном  случае отмени действие.\n\n" \
+                                   "🔽 Введи значение 🔽"
 
         return text
 
@@ -866,6 +887,9 @@ class Texts:
                        f"{values['second']} и поэтому некого искать. Эта функция станет доступной тогда, " \
                        f"когда будет добавлен первый {values['third']}."
 
+            case 'less':
+                text += "Значение должно быть *не менее 1*. Попробуй ещё раз или же отмени действие."
+
             case 'not-found':
                 value = None
 
@@ -875,6 +899,8 @@ class Texts:
 
                 text += f"{value.capitalize()} с идентификатором «*{data['id']}*» не найден. "
 
+            case 'not-numeric':
+                text += "Значение должно быть в числовом формате. Введи значение ещё раз или отмени действие."
         return text
 
     def success(self, mode, option=None, **data):
@@ -886,6 +912,11 @@ class Texts:
 
                 if option == 'user':
                     text += f"Пользователь с идентификатором «*{data['id']}*» был успешно найден, формируем данные..."
+            case 'updated-data':
+                if option == 'add-balance':
+                    text += "Средства успешно добавлены. Формируем данные..."
+                elif option == 'change-balance':
+                    text += "Баланс успешно обновлеён. Формируем данные..."
 
         return text
 
@@ -974,6 +1005,9 @@ class Buttons:
                         if len(self.database.get_data_by_value('subscriptions', 'user', user)):
                             items['⭐️ Подписки'] = {'type': 'get', 'action': 'subscriptions'}
 
+                        if len(self.database.get_data_by_value('users', 'inviter', user)):
+                            items['🔗 Рефералы'] = {'type': 'get', 'action': 'referral'}
+
                         if len(self.database.get_data_by_value('mailings', 'user', user)):
                             items['📨 Рассылки'] = {'type': 'get', 'action': 'mailings'}
 
@@ -1036,6 +1070,14 @@ class Buttons:
                         markup.add(types.InlineKeyboardButton(
                             "🔴 Забанить" if not status else "🟢 Разбанить",
                             callback_data=f"set-ban-{True if not status else False}-user-{userdata[0]}"))
+
+                    case 'balance':
+                        markup.add(
+                            types.InlineKeyboardButton(
+                                "➕ Добавить", callback_data=f"update-balance-user-{userdata[0]}-add"),
+                            types.InlineKeyboardButton(
+                                "🔄 Изменить", callback_data=f"update-balance-user-{userdata[0]}-change")
+                        )
 
                 if comeback:
                     markup.add(

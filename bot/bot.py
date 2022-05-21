@@ -123,9 +123,9 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     bot.delete_message(message.chat.id, message.id)
 
                     if len(userdata):
-                        bot.send_message(message.chat.id, texts.success('found-data', 'user', id=message.text),
-                                         parse_mode='markdown', reply_markup=buttons.comeback_reply('пользователям')
-                                         )
+                        bot.send_message(
+                            message.chat.id, texts.success('found-data', 'user', id=message.text),
+                            parse_mode='markdown', reply_markup=buttons.comeback_reply('пользователям'))
                         time.sleep(0.5)
 
                         text = "*Управление пользователем*\n\n" \
@@ -134,6 +134,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                         bot.send_message(message.chat.id, text, parse_mode='markdown',
                                          reply_markup=buttons.menu('admin', 'user', id=userdata[0][0]))
+
                         del sessions.admins[message.from_user.id]
                     else:
                         delete = bot.send_message(message.from_user.id,
@@ -141,6 +142,58 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                                   parse_mode='markdown',
                                                   reply_markup=buttons.cancel_reply('поиск пользователя'))
                         sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+            # Handling | Update balance
+            if message.from_user.id in sessions.admins \
+                    and sessions.admins[message.from_user.id]['type'] == 'update-balance':
+                if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
+                    option = sessions.admins[message.from_user.id]['actions']['option']
+                    user = sessions.admins[message.from_user.id]['user']['id']
+
+                    bot.delete_message(message.chat.id, message.id)
+
+                    try:
+                        summary = int(message.text)
+
+                        if summary > 0:
+                            balance = database.get_data_by_value('users', 'id', user)[0][3]
+
+                            match option:
+                                case 'add':
+                                    balance += summary
+
+                                case 'change':
+                                    balance = summary
+
+                            database.change_data('users', 'balance', balance, user)
+                            bot.edit_message_text(chat_id=message.from_user.id,
+                                                  message_id=sessions.admins[message.from_user.id]['message']['id'],
+                                                  text=texts.success('updated-data', f'{option}-balance'),
+                                                  parse_mode='markdown')
+
+                            userdata = database.get_data_by_value('users', 'id', user)[0]
+                            text = "*Управление пользователем*\n\n" \
+                                   f"{texts.show('user', 'full', item=userdata)}\n\n" \
+                                   f"🔽 Управление данными 🔽"
+
+                            markups = buttons.menu('admin', 'user', id=userdata[0])
+                            time.sleep(1)
+
+                        else:
+                            text = texts.error('less')
+                            markups = buttons.cancel_inline('update-balance-user', user)
+
+                    except ValueError:
+                        text = texts.error('not-numeric')
+                        markups = buttons.cancel_inline('update-balance-user', user)
+
+                    try:
+                        bot.edit_message_text(chat_id=message.from_user.id,
+                                              message_id=sessions.admins[message.from_user.id]['message']['id'],
+                                              text=text, parse_mode='markdown', reply_markup=markups)
+                    except ApiTelegramException:
+                        pass
+
 
 
             # - USER
@@ -156,15 +209,15 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                 usertype = handler.recognition('usertype', user=call.from_user.id)
                 sessions.clear(usertype, call.from_user.id)
 
-                match queries[1]:
-                    case _:
-                        pass
-                # try:
-                #     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
-                #                           text=text, parse_mode='markdown', reply_markup=markups)
-                # except ApiTelegramException:
-                #     bot.delete_message(call.message.chat.id, call.message.id)
-                #     bot.send_message(call.message.chat.id, text, parse_mode='markdown', reply_markup=markups)
+                if 'update-balance' in call.data:
+                    text = texts.control('user', 'balance', id=queries[-1])
+                    markups = buttons.control('user', 'balance', id=queries[-1])
+
+                try:
+                    bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
+                                          text=text, parse_mode='markdown', reply_markup=markups)
+                except ApiTelegramException:
+                    bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
 
             case 'comeback':
                 text, markups = str(), str()
@@ -198,14 +251,32 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                 if queries[1] == 'user':
                     mode, user = queries[-1], int(queries[-2])
-
-                    match mode:
-                        case 'ban':
-                            text = texts.control(queries[1], mode, id=user)
-                            markups = buttons.control(queries[1], mode, id=user)
+                    text = texts.control(queries[1], mode, id=user)
+                    markups = buttons.control(queries[1], mode, id=user)
 
                 bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
                                       text=text, reply_markup=markups, parse_mode='markdown')
+
+            case 'update':
+                text, markups = str(), str()
+                match queries[2]:
+                    case 'user':
+                        mode, option, user = queries[1], queries[-1], int(queries[3])
+
+                        match mode:
+                            case 'balance':
+                                sessions.start(call.from_user.id, 'admin', 'update-balance', call.message.id, user)
+                                sessions.admins[call.from_user.id]['actions']['option'] = option
+
+                                text = texts.processes('user', mode, option)
+                                markups = buttons.cancel_inline('update-balance-user', user)
+
+                try:
+                    bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
+                                          text=text, parse_mode='markdown', reply_markup=markups)
+
+                except ApiTelegramException:
+                    bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
 
             case 'set':
                 text, markups, answer_success, answer_error = str(), str(), str(), str()

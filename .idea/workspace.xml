@@ -1,17 +1,45 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="" />
+    <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/web/.htaccess" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/data/configs.ini" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/scripts/js/handler.js" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/scripts/php/core.php" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/styles/demo.css" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/templates/footer.php" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/templates/header.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/MailHub.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/MailHub.iml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources/1d95bc3f-e4ea-4f7d-8f61-050f08d2094c.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources/463e71e4-ee27-4661-94d2-74fae25ae6ba.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources/5eb207e0-01fe-4663-a695-40cd2eb89a2d.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/bot.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/core.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/sources/data/database.sqlite" beforeDir="false" afterPath="$PROJECT_DIR$/bot/sources/data/database.sqlite" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/router.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/router.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/views/demo.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/views/demo.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/views/main.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/views/main.php" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="ComposerSettings">
+    <execution />
+  </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
       <list>
-        <option value="CSS File" />
         <option value="Python Script" />
+        <option value="JavaScript File" />
+        <option value="CSS File" />
+        <option value="HTML File" />
       </list>
     </option>
   </component>
@@ -30,17 +58,25 @@
     <option name="stateVersion" value="1" />
   </component>
   <component name="ProjectId" id="29J6vPRAWpjmb5exrCkuzy0QM2d" />
-  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
-  }
-}]]></component>
-  <component name="RunManager" selected="Python.run">
+  <component name="PropertiesComponent">
+    <property name="DatabaseDriversLRU" value="mysql" />
+    <property name="DefaultHtmlFileTemplate" value="HTML File" />
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="list.type.of.created.stylesheet" value="CSS" />
+    <property name="nodejs_package_manager_path" value="npm" />
+    <property name="vue.rearranger.settings.migration" value="true" />
+  </component>
+  <component name="RunManager">
     <configuration name="core" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="MailHub" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -107,13 +143,6 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
-    <recent_temporary>
-      <list>
-        <item itemvalue="Python.run" />
-        <item itemvalue="Python.core" />
-        <item itemvalue="Python.test" />
-      </list>
-    </recent_temporary>
   </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
@@ -128,19 +157,27 @@
       <workItem from="1652896033244" duration="55000" />
       <workItem from="1652900248382" duration="12513000" />
       <workItem from="1652913574730" duration="3481000" />
+      <workItem from="1653074807658" duration="21454000" />
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="oldMeFiltersMigrated" value="true" />
+  </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
     <select />
-  </component>
-  <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/MailHub$test.coverage" NAME="test Coverage Results" MODIFIED="1652914416041" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/bot" />
-    <SUITE FILE_PATH="coverage/MailHub$core.coverage" NAME="core Coverage Results" MODIFIED="1652915902372" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/bot" />
-    <SUITE FILE_PATH="coverage/MailHub$run.coverage" NAME="run Coverage Results" MODIFIED="1653005949743" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/bot" />
   </component>
 </project>

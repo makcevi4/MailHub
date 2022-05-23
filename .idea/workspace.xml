@@ -2,28 +2,12 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/web/.htaccess" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/web/sources/data/configs.ini" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/web/sources/scripts/js/handler.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/web/sources/scripts/php/core.php" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/web/sources/styles/demo.css" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/web/sources/templates/footer.php" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/web/sources/templates/header.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/MailHub.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/MailHub.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/web/sources/scripts/js/validator.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources/1d95bc3f-e4ea-4f7d-8f61-050f08d2094c.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources/463e71e4-ee27-4661-94d2-74fae25ae6ba.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources/5eb207e0-01fe-4663-a695-40cd2eb89a2d.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/bot.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/core.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot/sources/data/database.sqlite" beforeDir="false" afterPath="$PROJECT_DIR$/bot/sources/data/database.sqlite" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/test.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/web/router.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/router.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/scripts/php/core.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/scripts/php/core.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/styles/demo.css" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/styles/demo.css" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/web/sources/views/demo.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/views/demo.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/web/sources/views/main.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/views/main.php" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -37,9 +21,9 @@
     <option name="RECENT_TEMPLATES">
       <list>
         <option value="Python Script" />
-        <option value="JavaScript File" />
         <option value="CSS File" />
         <option value="HTML File" />
+        <option value="JavaScript File" />
       </list>
     </option>
   </component>
@@ -75,6 +59,11 @@
     <property name="list.type.of.created.stylesheet" value="CSS" />
     <property name="nodejs_package_manager_path" value="npm" />
     <property name="vue.rearranger.settings.migration" value="true" />
+  </component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\User\Documents\GitHub\MailHub\web\sources\templates" />
+    </key>
   </component>
   <component name="RunManager">
     <configuration name="core" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
@@ -158,6 +147,8 @@
       <workItem from="1652900248382" duration="12513000" />
       <workItem from="1652913574730" duration="3481000" />
       <workItem from="1653074807658" duration="21454000" />
+      <workItem from="1653287511298" duration="14399000" />
+      <workItem from="1653305438928" duration="1188000" />
     </task>
     <servers />
   </component>

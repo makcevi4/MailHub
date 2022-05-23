@@ -64,21 +64,67 @@ class Handler {
         $this->formatter = $formatter;
     }
 
-    public function checkUserAgent($userid=NULL){
-        $output = array('status' => false);
+    public function checkUserAgent($userdata){
+        $output = array('status' => false, 'description' => null);
         $userAgent = $this->formatter->getUserAgent();
-        echo $userAgent;
+        $existAgentData = $this->database->getDataByValue('users', 'agent', $userAgent);
 
-//        if (!is_null($userid)){
-//            $userdata = $this->database->getDataByValue('users', 'id', $userid);
-//
-//        }
-//
-//        else {
-//
-//        }
+        echo '<br>'.$userAgent.'<br>';
+        if (isset($existAgentData)){
+            echo ' - exist agent - ';
+            if ($userdata['id'] == $existAgentData['id']){
+                // проверка на демо
+                echo 'проверка демо';
+            }
+            else {
+                // другой пользователь
+                $output['description'] = 'incorrect-id';
+                echo 'другой пользователь';
+            }
+
+        }
+        else {
+            echo ' - didn\'t exist agent - ';
+
+            if (empty($userdata['agent'])) {
+                echo 'Демо';
+            }
+            else {
+                if ($userdata['agent'] == $userAgent){
+                    // проверка демо
+                    echo 'проверка демо';
+                }
+                else {
+                    $output['description'] = 'incorrect-agent';
+                    echo 'другой агент';
+                }
+            }
+
+
+        }
+
+        echo '<br><br><br>EX: ';
+        print_r($existAgentData);
+        echo '<br>';
+
+        echo 'UA: ';
+        print_r($userdata);
+        echo '<br>';
+
 
         return $output;
+    }
+
+    public function sendPost($link, $data){
+        $ch = curl_init();
+
+        curl_setopt($ch,CURLOPT_URL, $link);
+        curl_setopt($ch,CURLOPT_POST, true);
+        curl_setopt($ch,CURLOPT_POSTFIELDS, $data);
+
+        curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
+
+        curl_exec($ch);
     }
 }
 
@@ -88,7 +134,10 @@ class Formatter {
         $value = 'AppleWebKit/';
 
         foreach (explode(' ', $_SERVER['HTTP_USER_AGENT']) as $data){
-            $result =  str_replace($value, '', $data);
+            if (is_int(strpos($data, $value))){
+                $result =  str_replace($value, '', $data);
+            }
+
         }
 
         return $result;

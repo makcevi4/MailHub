@@ -28,7 +28,14 @@ $userdata = $database->getDataByValue('users', 'id', $user);
         ?>
     <?php else: ?>
         <?php
-        $handler->checkUserAgent($userdata);
+        $result = $handler->checkBan();
+
+        if ($result['status']){
+            $result = $handler->checkUserDemoSubscription($userdata);
+        }
+
+        print_r($result);
+
         ?>
     <?php endif; ?>
 

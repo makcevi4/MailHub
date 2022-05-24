@@ -1,14 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/web/sources/scripts/js/validator.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/web/sources/scripts/php/core.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/scripts/php/core.php" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/web/sources/styles/demo.css" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/styles/demo.css" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/web/sources/views/demo.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/views/demo.php" afterDir="false" />
-    </list>
+    <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -49,17 +42,15 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">
-    <property name="DatabaseDriversLRU" value="mysql" />
-    <property name="DefaultHtmlFileTemplate" value="HTML File" />
-    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
-    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
-    <property name="WebServerToolWindowFactoryState" value="false" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
-    <property name="list.type.of.created.stylesheet" value="CSS" />
-    <property name="nodejs_package_manager_path" value="npm" />
-    <property name="vue.rearranger.settings.migration" value="true" />
-  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/Users/admin/Documents/GitHub/MailHub&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\User\Documents\GitHub\MailHub\web\sources\templates" />
@@ -149,6 +140,8 @@
       <workItem from="1653074807658" duration="21454000" />
       <workItem from="1653287511298" duration="14399000" />
       <workItem from="1653305438928" duration="1188000" />
+      <workItem from="1653341157220" duration="3959000" />
+      <workItem from="1653346869873" duration="8960000" />
     </task>
     <servers />
   </component>
@@ -165,7 +158,6 @@
         </entry>
       </map>
     </option>
-    <option name="oldMeFiltersMigrated" value="true" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

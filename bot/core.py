@@ -3,10 +3,10 @@ import time
 import json
 import string
 import random
-import sqlite3
 import schedule
 import requests
 import configparser
+import mysql.connector
 
 from telebot import types
 from redis import StrictRedis
@@ -14,8 +14,7 @@ from westwallet_api import WestWalletAPI
 from datetime import datetime, timedelta
 from phpserialize import unserialize
 from telegram_bot_pagination import InlineKeyboardPaginator
-
-from sqlite3 import Error as SQLiteError
+from mysql.connector import Error as SQLError
 from telebot.apihelper import ApiTelegramException
 from redis.exceptions import ConnectionError
 
@@ -82,9 +81,17 @@ class Database:
     def __init__(self, configs):
         self.configs = configs
 
-    @staticmethod
-    def connect():
-        connection = sqlite3.connect('sources/data/database.sqlite')
+    def connect(self):
+        configs = {
+            'user': self.configs['database']['username'],
+            'password': self.configs['database']['password'],
+            'host': self.configs['database']['host'],
+            'port': self.configs['database']['port'],
+            'database': self.configs['database']['name'],
+            'raise_on_warnings': True,
+        }
+
+        connection = mysql.connector.connect(**configs)
         controller = connection.cursor()
         return connection, controller
 
@@ -97,64 +104,66 @@ class Database:
                 case 'logs':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `userid` INT NOT NULL,
-                    `username` VARCHAR NOT NULL,
-                    `usertype` VARCHAR NOT NULL,
-                    `date` INT NOT NULL,
-                    `action` VARCHAR NOT NULL
+                    `user` INT(11) NOT NULL,
+                    `username` VARCHAR(255) NOT NULL,
+                    `usertype` VARCHAR(255) NOT NULL,
+                    `date` DATETIME NOT NULL,
+                    `action` TEXT NOT NULL
                     )"""
 
                 case 'users':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `id` INT NOT NULL,
-                    `name` VARCHAR NOT NULL,
-                    `registration` INT NOT NULL,
+                    `id` INT(11) NOT NULL,
+                    `name` VARCHAR(255) NOT NULL,
+                    `registration` DATETIME NOT NULL,
                     `balance` FLOAT NOT NULL,
-                    `inviter` INT NOT NULL,
-                    `percentage` INT NOT NULL,
-                    `ban` INT NOT NULL,
-                    `cause` VARCHAR NOT NULL
+                    `inviter` INT(11) NOT NULL,
+                    `percentage` INT(3) NOT NULL,
+                    `ban` BOOLEAN NOT NULL,
+                    `cause` VARCHAR(255) NOT NULL,
+                    `ip` VARCHAR(255) NOT NULL,
+                    `agent` VARCHAR(255) NOT NULL
                     )"""
                 case 'subscriptions':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `type` VARCHAR NOT NULL,
-                    `user` INT NOT NULL,
-                    `status` VARCHAR NOT NULL,
-                    `purchased` INT NOT NULL,
-                    `expiration` INT NOT NULL
+                    `type` VARCHAR(255) NOT NULL,
+                    `user` INT(11) NOT NULL,
+                    `status` VARCHAR(255) NOT NULL,
+                    `purchased` DATETIME NOT NULL,
+                    `expiration` DATETIME NOT NULL
                     )"""
 
                 case 'payments':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `id` VARCHAR NOT NULL,
-                    `date` INT NOT NULL,
-                    `status` VARCHAR NOT NULL,
-                    `type` VARCHAR NOT NULL,
-                    `user` INT NOT NULL,
+                    `id` VARCHAR(255) NOT NULL,
+                    `date` DATETIME NOT NULL,
+                    `status` VARCHAR(255) NOT NULL,
+                    `type` VARCHAR(255) NOT NULL,
+                    `user` INT(11) NOT NULL,
                     `summary` FLOAT NOT NULL,
-                    `expiration` INT NOT NULL
+                    `expiration` DATETIME NOT NULL
                     )"""
 
                 case 'domains':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `domain` VARCHAR NOT NULL,
-                    `status` VARCHAR NOT NULL,
-                    `registration` INT NOT NULL
+                    `domain` VARCHAR(255) NOT NULL,
+                    `status` VARCHAR(255) NOT NULL,
+                    `registration` DATETIME NOT NULL
                     )"""
 
                 case 'mailings':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `id` VARCHAR NOT NULL,
-                    `date` INT NOT NULL,
-                    `status` VARCHAR NOT NULL,
-                    `domain` VARCHAR NOT NULL,
-                    `user` INT NOT NULL,
-                    `mail` TEXT NOT NULL
+                    `id` VARCHAR(255) NOT NULL,
+                    `date` DATETIME NOT NULL,
+                    `status` VARCHAR(255) NOT NULL,
+                    `domain` VARCHAR(255) NOT NULL,
+                    `user` INT(11) NOT NULL,
+                    `mail` JSON NOT NULL
                     )"""
 
             controller.execute(query)
@@ -162,8 +171,8 @@ class Database:
             connection.close()
             return True
 
-        except SQLiteError as error:
-            print(f"ERROR | TYPE: SQLite | FUNC: {self.create_pure_table.__name__} | DESC: {error}")
+        except SQLError as error:
+            print(f"ERROR | TYPE: SQL | FUNC: {self.create_pure_table.__name__} | DESC: {error}")
             return False
 
     def delete_table(self, table):
@@ -178,10 +187,10 @@ class Database:
 
                 return True
             else:
-                print(f"ERROR | Sqlite: Table {table} isn't recognize")
+                print(f"ERROR | SQL: Table {table} isn't recognize")
                 return False
-        except SQLiteError as error:
-            print(f"ERROR | TYPE: SQLite | FUNC: {self.delete_table.__name__} | DESC: {error}")
+        except SQLError as error:
+            print(f"ERROR | TYPE: SQL | FUNC: {self.delete_table.__name__} | DESC: {error}")
             return False
 
     def recreate_table(self, value='all'):
@@ -226,8 +235,8 @@ class Database:
                                 f"""SELECT * FROM `{table}` WHERE `{value}` = '{data}' OR `{value_}` = '{data_}'""")
 
                 return controller.fetchall()
-            except SQLiteError as error:
-                print(f"ERROR | TYPE: SQLite | FUNC: {self.get_data_by_value.__name__} | DESC: {error}")
+            except SQLError as error:
+                print(f"ERROR | TYPE: SQL | FUNC: {self.get_data_by_value.__name__} | DESC: {error}")
                 return False
 
     def add_data(self, table, **items):
@@ -238,19 +247,19 @@ class Database:
                 match table:
                     case 'logs':
                         query = f"""
-                        INSERT INTO `{table}` (`userid`, `username`, `usertype`, `date`, `action`)
+                        INSERT INTO `{table}` (`user`, `username`, `usertype`, `date`, `action`)
                         VALUES (
                         {items['userid']}, '{items['username']}', '{items['usertype']}',
-                        {int(time.time())}, '{items['action']}'
+                        '{}', '{items['action']}'
                         )"""
 
                     case 'users':
                         query = f"""
                         INSERT INTO `{table}` (
-                        `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, `ban`, `cause`)
+                        `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, `ban`, `cause`, `ip`, `agent`)
                         VALUES (
-                        {items['id']}, '{items['name']}', {int(time.time())}, 0, 
-                        {items['inviter']}, {items['percentage']}, 0, 'None')
+                        {items['id']}, '{items['name']}', '{}', 0, {items['inviter']}, 
+                        {items['percentage']}, 0, 'None', '', '')
                         """
 
                     case 'subscriptions':
@@ -260,7 +269,7 @@ class Database:
                         INSERT INTO `{table}` (`type`, `user`, `status`, `purchased`, `expiration`)
                         VALUES (
                         '{items['type']}', {items['user']}, '{status}', 
-                        {items['dates']['now']}, {items['dates']['expiration']})
+                        '{items['dates']['now']}', '{items['dates']['expiration']}')
                         """
 
                     case 'payments':
@@ -268,21 +277,21 @@ class Database:
                         query = f"""
                         INSERT INTO `{table}` (`id`, `date`, `status`, `type`, `user`, `summary`, `expiration`)
                         VALUES (
-                        {items['id']}, {int(time.time())}, '{status}', '{items['type']}', 
-                        {items['user']}, {items['summary']}, {items['expiration']})
+                        {items['id']}, '{}', '{status}', '{items['type']}', 
+                        {items['user']}, {items['summary']}, '{items['expiration']}')
                         """
 
                     case 'domains':
                         query = f"""
                         INSERT INTO `{table}` (`domain`, `status`, `registration`)
-                        VALUES ('{items['domain']}', '{items['status']}', {int(time.time())})
+                        VALUES ('{items['domain']}', '{items['status']}', '{}')
                         """
 
                     case 'mailings':
                         status = list(self.configs['statuses'].keys())[1]
                         query = f"""
                         INSERT INTO `{table}` (`id`, `date`, `status`, `domain`, `user`, `mail `)
-                        VALUES ({items['id']}, {int(time.time())}, '{status}', 
+                        VALUES ({items['id']}, '{}', '{status}', 
                         '{items['domain']}', {items['user']}, '{items['mail']}')
                         """
 
@@ -292,8 +301,8 @@ class Database:
                     connection.close()
                     return True
 
-            except SQLiteError as error:
-                print(f"ERROR | TYPE: SQLite | FUNC: {self.add_data.__name__} | DESC: {error}")
+            except SQLError as error:
+                print(f"ERROR | TYPE: SQL | FUNC: {self.add_data.__name__} | DESC: {error}")
                 return False
         else:
             return False
@@ -323,8 +332,8 @@ class Database:
                 connection.commit()
                 connection.close()
                 return True
-            except SQLiteError as error:
-                print(f"ERROR | TYPE: SQLite | FUNC: {self.change_data.__name__} | DESC: {error}")
+            except SQLError as error:
+                print(f"ERROR | TYPE: SQL | FUNC: {self.change_data.__name__} | DESC: {error}")
                 return False
 
     def delete_data(self, table, value, data):
@@ -339,8 +348,8 @@ class Database:
                 connection.commit()
                 connection.close()
                 return True
-            except SQLiteError as error:
-                print(f"ERROR | TYPE: SQLite | FUNC: {self.delete_data.__name__} | DESC: {error}")
+            except SQLError as error:
+                print(f"ERROR | TYPE: SQL | FUNC: {self.delete_data.__name__} | DESC: {error}")
                 return False
         else:
             return False
@@ -1097,4 +1106,5 @@ class Buttons:
 if __name__ == '__main__':
     _configs = Configs().initialization()
     _database = Database(_configs)
+
     _database.recreate_table()

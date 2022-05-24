@@ -19,3 +19,17 @@ input::-webkit-inner-spin-button {
 .notification-error {
     color: red;
 }
+.block-success, .block-error {
+    text-align: center;
+    margin: 20px;
+
+}
+.block-success {
+    color: green;
+    border: 1px solid green;
+}
+
+.block-error {
+    color: red;
+    border: 1px solid red;
+}

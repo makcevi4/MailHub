@@ -93,11 +93,10 @@ class Database {
                 break;
         }
 
-        echo $query;
-        if (!$this->database->query($query)) {
-            printf("Error message: %s\n", $this->database->error);
-        }
-//        return mysqli_query($this->database, $query);
+//        if (!$this->database->query($query)) {
+//            printf("Error message: %s\n", $this->database->error);
+//        }
+        return mysqli_query($this->database, $query);
 
 //
 //                    case 'users':
@@ -192,19 +191,29 @@ class Handler {
         return $output;
     }
 
+    public function setIP($userdata){
+        $ip = $_SERVER['REMOTE_ADDR'];
+
+        if (empty($userdata['ip']) || $userdata['ip'] !== $ip){
+            $this->database->changeData('users', 'ip', $ip, $userdata['id']);
+        }
+    }
+
     public function checkUserDemoSubscription($userdata){
         $output = array('status' => false, 'description' => null);
         $userAgent = $this->formatter->getUserAgent();
         $existAgentData = $this->database->getDataByValue('users', 'agent', $userAgent);
 
-        echo '<br>'.$userAgent.'<br>';
         if (isset($existAgentData)){
             if ($userdata['id'] == $existAgentData['id']){
-                // проверка на демо
-                echo 'проверка демо';
                 $status = $this->checkSubscription($userdata['id']);
                 if ($status){
-//                  //
+                    $dates = $this->formatter->getSubscriptionsDates();
+                    $this->database->addData('subscriptions', ['type' => 'demo', 'user' => $userdata['id'], 'dates' => $dates]);
+
+                    $log = "Получена пробная подписка на {$this->configs['main']['demo']} ч.";
+                    $this->database->addData('logs', ['user' => $userdata['id'], 'username' => $userdata['name'], 'usertype' => 'user', 'action' => $log]);
+
                     $output['status'] = $status;
                     $output['description'] = 'success';
                 }
@@ -216,7 +225,7 @@ class Handler {
                 $this->database->changeData('users', 'ban', true, $existAgentData['id']);
                 $this->database->changeData('users', 'cause', 'abuse-demo', $existAgentData['id']);
 
-                $log = "Пользователь попыталя получить пробную подписку не на себя, а на пользователя [{$userdata['name']}](tg://user?id={$userdata['id']}).
+                $log = "Пользователь попытался получить пробную подписку не на себя, а на пользователя [{$userdata['name']}](tg://user?id={$userdata['id']}).
                 Данное действие расценено как попытка заабьюзить подписку, пользователь был автоматически забанен.";
                 $this->database->addData('logs', ['user' => $userdata['id'], 'username' => $userdata['name'], 'usertype' => 'user', 'action' => $log]);
 
@@ -239,8 +248,14 @@ class Handler {
             else {
                 if ($userdata['agent'] == $userAgent){
                     $status = $this->checkSubscription($userdata['id']);
+
                     if ($status){
-//                  //
+                        $dates = $this->formatter->getSubscriptionsDates();
+                        $this->database->addData('subscriptions', ['type' => 'demo', 'user' => $userdata['id'], 'dates' => $dates]);
+
+                        $log = "Получена пробная подписка на {$this->configs['main']['demo']} ч.";
+                        $this->database->addData('logs', ['user' => $userdata['id'], 'username' => $userdata['name'], 'usertype' => 'user', 'action' => $log]);
+
                         $output['status'] = $status;
                         $output['description'] = 'success';
                     }
@@ -250,58 +265,29 @@ class Handler {
                 }
                 else {
                     $output['description'] = 'another-agent';
-                    echo 'другой агент';
                 }
             }
-
-
         }
-
-        echo '<br><br><br>EX: ';
-        print_r($existAgentData);
-        echo '<br>';
-
-        echo 'UA: ';
-        print_r($userdata);
-        echo '<br>';
-
 
         return $output;
     }
 
     public function checkSubscription($user){
-        $status = false;
+        $status = true;
         $subscriptions = $this->database->getDataByValue('subscriptions', 'user', $user, null, null, 'array');
 
-        if (count($subscriptions) === 0){
-            echo 'good, add new';
-            $status = true;
-        }
-        else {
-            echo 'checking';
-
+        if (count($subscriptions) > 0){
             foreach ($subscriptions as $subscription){
-                print_r($subscription);
-                echo '<br>';
+                if ($subscription[0] == 'demo'){
+                    $status = false;
+                    break;
+                }
             }
-
-
         }
 
         return $status;
     }
 
-    public function sendPost($link, $data){
-        $ch = curl_init();
-
-        curl_setopt($ch,CURLOPT_URL, $link);
-        curl_setopt($ch,CURLOPT_POST, true);
-        curl_setopt($ch,CURLOPT_POSTFIELDS, $data);
-
-        curl_setopt($ch,CURLOPT_RETURNTRANSFER, true);
-
-        curl_exec($ch);
-    }
 }
 
 class Formatter {

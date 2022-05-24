@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="ChangeListManager">
-    <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="" />
+    <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources/535dac3e-4052-478e-b35a-817940b18f97.xml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/core.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/sources/data/configs.ini" beforeDir="false" afterPath="$PROJECT_DIR$/bot/sources/data/configs.ini" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/scripts/php/core.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/scripts/php/core.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/styles/demo.css" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/styles/demo.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/web/sources/views/demo.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/views/demo.php" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -42,15 +51,10 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/Users/admin/Documents/GitHub/MailHub&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
-  }
-}</component>
+  <component name="PropertiesComponent">
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="settings.editor.selected.configurable" value="com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable" />
+  </component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
       <recent name="C:\Users\User\Documents\GitHub\MailHub\web\sources\templates" />
@@ -142,6 +146,7 @@
       <workItem from="1653305438928" duration="1188000" />
       <workItem from="1653341157220" duration="3959000" />
       <workItem from="1653346869873" duration="8960000" />
+      <workItem from="1653386523847" duration="5267000" />
     </task>
     <servers />
   </component>
@@ -158,6 +163,7 @@
         </entry>
       </map>
     </option>
+    <option name="oldMeFiltersMigrated" value="true" />
   </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />

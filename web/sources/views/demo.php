@@ -29,14 +29,38 @@ $userdata = $database->getDataByValue('users', 'id', $user);
     <?php else: ?>
         <?php
         $result = $handler->checkBan();
+        $handler->setIP($userdata);
 
         if ($result['status']){
             $result = $handler->checkUserDemoSubscription($userdata);
         }
-
-        print_r($result);
-
         ?>
+
+        <?php if($result['status'] && $result['description'] == 'success'): ?>
+            <div class="block-success">Подписка успешно выдана</div>
+        <?php else: ?>
+            <div class="block-error">
+                <?php switch ($result['description']):
+                    case 'already-used': ?>
+                        <div class="error-used" >
+                            Подписка ранее была оформлена.
+                            Получить подписку можно всего лишь один раз
+                        </div>
+                    <?php break;
+                        case 'another-user': ?>
+                        <div class="error-blocked">
+                            Ты попытался оформить пробную подписку не на себя, поэтому твой профиль был заблокирован.
+                            Если считаешь это ошибкой - обратись в поддержку.
+                        </div>
+                    <?php break;
+                        case 'another-agent': ?>
+                        <div class="error-agent">
+                            Ошибка устройства. Ранее за твоим аккаунтом было привязано другое устройство.
+                        </div>
+                        <?php break; ?>
+                    <?php endswitch; ?>
+            </div>
+        <?php endif; ?>
     <?php endif; ?>
 
 <!-- didn't got ID -->

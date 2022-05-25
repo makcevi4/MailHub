@@ -28,10 +28,10 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         bot.send_message(message.chat.id, texts.menu('admin', 'main'), parse_mode='markdown',
                                          reply_markup=buttons.menu('admin', 'main'))
                     else:
-                        username = database.get_data_by_value('users', 'id', message.from_user.id)[0][1]
+                        username = database.get_data_by_value('users', 'id', message.from_user.id)[0]['name']
                         database.change_data('users', 'ban', 1, message.from_user.id)
                         database.change_data('users', 'cause', 'abuse', message.from_user.id)
-                        database.add_data('logs', userid=message.from_user.id, username=username, usertype=usertype,
+                        database.add_data('logs', user=message.from_user.id, username=username, usertype=usertype,
                                           action="Пользователь попытался запустить админ-панель, но не смог, так как "
                                                  "у него нет прав. Пользователь был автоматически заблокирован.")
 
@@ -133,7 +133,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                f"🔽 Управление данными 🔽"
 
                         bot.send_message(message.chat.id, text, parse_mode='markdown',
-                                         reply_markup=buttons.menu('admin', 'user', id=userdata[0][0]))
+                                         reply_markup=buttons.menu('admin', 'user', id=userdata[0]['id']))
 
                         del sessions.admins[message.from_user.id]
                     else:
@@ -156,7 +156,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         summary = int(message.text)
 
                         if summary > 0:
-                            balance = database.get_data_by_value('users', 'id', user)[0][3]
+                            balance = database.get_data_by_value('users', 'id', user)[0]['balance']
 
                             match option:
                                 case 'add':
@@ -176,7 +176,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                    f"{texts.show('user', 'full', item=userdata)}\n\n" \
                                    f"🔽 Управление данными 🔽"
 
-                            markups = buttons.menu('admin', 'user', id=userdata[0])
+                            markups = buttons.menu('admin', 'user', id=userdata['id'])
                             time.sleep(1)
 
                         else:
@@ -193,8 +193,6 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                               text=text, parse_mode='markdown', reply_markup=markups)
                     except ApiTelegramException:
                         pass
-
-
 
             # - USER
 
@@ -226,7 +224,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     text = "*Управление пользователем*\n\n" \
                            f"{texts.show('user', 'full', item=userdata[0])}\n\n" \
                            "🔽 Управление данными 🔽"
-                    markups = buttons.menu('admin', 'user', id=userdata[0][0])
+                    markups = buttons.menu('admin', 'user', id=userdata[0]['id'])
 
                 try:
                     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
@@ -290,15 +288,17 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         answer_success = f"{'🔴' if status else '🟢'} Пользователь {'забанен' if status else 'разбанен'}"
                         answer_error = '⛔️ Ошибка'
 
-                        database.change_data('users', 'ban', 1 if status else 0, userdata[0])
+                        database.change_data('users', 'ban', 1 if status else 0, userdata['id'])
 
-                        text = texts.control(queries[3], queries[1], id=userdata[0])
-                        markups = buttons.control(queries[3], queries[1], id=userdata[0])
+                        text = texts.control(queries[3], queries[1], id=userdata['id'])
+                        markups = buttons.control(queries[3], queries[1], id=userdata['id'])
 
                         database.add_data(
-                            'logs', userid=admin[0], username=admin[1], usertype=usertype,
-                            action=texts.logs('admin', 'user', 'ban', status=status, name=userdata[1], id=userdata[0])
+                            'logs', user=admin[0], username=admin[1], usertype=usertype,
+                            action=texts.logs('admin', 'user', 'ban', status=status,
+                                              name=userdata['name'], id=userdata['id'])
                         )
+
                     case 'page':
                         data, title = list(), str()
 
@@ -316,6 +316,13 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             data = handler.paginator(data, 'users', int(queries[-1])) \
                                 if data else ("- Пользователей ещё нет 🤷🏻‍♂", '')
 
+                        elif queries[2] == 'user':
+                            title = call.message.text.split('\n')[0]
+                            user, mode, page = int(queries[-2]), queries[3], int(queries[-1])
+                            array = database.get_data_by_value(mode, 'user', user)
+                            data = handler.paginator(
+                                texts.show(mode, array=array), f'user-{mode}', id=user, page=page)
+
                         text, markups = f"*{title}*\n\n{data[0]}", data[1]
                         answer_success, answer_error = '✅ Загружено', '❎ Ранее было загружено'
 
@@ -331,10 +338,13 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                 match queries[1]:
                     case 'user':
-                        print('do user get data')
+                        title = f"{handler.recognition('user', 'title', items=call)} пользователя"
+                        user, mode = int(queries[2]), queries[-1]
+                        array = database.get_data_by_value(mode, 'user', user)
+                        data = handler.paginator(texts.show(mode, array=array), f'user-{mode}', id=user)
 
-                # bot.send_message(call.message.chat.id, f'*{title}*\n\n{data[0]}',
-                #                  parse_mode='markdown', reply_markup=data[1])
+                bot.send_message(call.message.chat.id, f'*{title}*\n\n{data[0]}',
+                                 parse_mode='markdown', reply_markup=data[1])
 
     # -------------
     try:

@@ -93,7 +93,7 @@ class Database:
         }
 
         connection = mysql.connector.connect(**configs)
-        controller = connection.cursor()
+        controller = connection.cursor(dictionary=True)
         return connection, controller
 
     @staticmethod
@@ -216,7 +216,7 @@ class Database:
         if table in self.tables:
             connection, controller = self.connect()
             controller.execute(f"""SELECT * FROM `{table}`""")
-            self.close(connection, controller)
+
             return controller.fetchall()
 
     def get_data_by_value(self, table, value, data, value_=None, data_=None):
@@ -244,7 +244,6 @@ class Database:
                             controller.execute(
                                 f"""SELECT * FROM `{table}` WHERE `{value}` = '{data}' OR `{value_}` = '{data_}'""")
 
-                self.close(connection, controller)
                 return controller.fetchall()
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.get_data_by_value.__name__} | DESC: {error}")
@@ -260,7 +259,7 @@ class Database:
                         query = f"""
                         INSERT INTO `{table}` (`user`, `username`, `usertype`, `date`, `action`)
                         VALUES (
-                        {items['userid']}, '{items['username']}', '{items['usertype']}',
+                        {items['user']}, '{items['username']}', '{items['usertype']}',
                         '{datetime.now()}', '{items['action']}'
                         )"""
 
@@ -270,7 +269,7 @@ class Database:
                         `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, `ban`, `cause`, `ip`, `agent`)
                         VALUES (
                         {items['id']}, '{items['name']}', '{datetime.now()}', 0, {items['inviter']}, 
-                        {items['percentage']}, 0, 'None', '', '')
+                        {items['percentage']}, 0, 'None', 'None', '')
                         """
 
                     case 'subscriptions':
@@ -313,8 +312,9 @@ class Database:
 
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.add_data.__name__} | DESC: {error}")
+            finally:
+                self.close(connection, controller)
 
-            self.close(connection, controller)
         return status
 
     def change_data(self, table, setter, data, value, column='id'):
@@ -363,8 +363,8 @@ class Database:
                 status = True
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.delete_data.__name__} | DESC: {error}")
-
-            self.close(connection, controller)
+            finally:
+                self.close(connection, controller)
         return status
 
 
@@ -459,10 +459,11 @@ class Handler:
                         if len(data['commands']) == 2:
                             inviter_data = self.database.get_data_by_value('users', 'id', data['commands'][1])
                             additional = f"Пользователь использовал реферальный код `{data['commands'][1]}`, "
-                            if len(inviter_data) and not inviter_data[0][6]:
-                                inviter = inviter_data[0][0]
-                                additional += f"пригласитель [{inviter_data[0][1]}](tg://user?id={inviter_data[0][0]}) | " \
-                                              f"ID: {inviter_data[0][0]}."
+                            if len(inviter_data) and not inviter_data[0]['ban']:
+                                inviter = inviter_data[0]['id']
+                                additional += f"пригласитель [{inviter_data[0]['name']}]" \
+                                              f"(tg://user?id={inviter_data[0]['id']}) | " \
+                                              f"ID: {inviter_data[0]['id']}."
                             else:
                                 additional += "но пригласитель либо не найден, либо заблокирован."
                     except KeyError:
@@ -477,7 +478,7 @@ class Handler:
 
                 if 'commands' in data.keys():
                     usertype = self.recognition('usertype', user=data['user'])
-                    self.database.add_data('logs', userid=data['user'], username=username, usertype=usertype, action=log)
+                    self.database.add_data('logs', user=data['user'], username=username, usertype=usertype, action=log)
 
 
     @staticmethod
@@ -564,7 +565,7 @@ class Handler:
 
                         if value == 'ids':
                             for user in users:
-                                result.append(user[0])
+                                result.append(user['id'])
 
             case 'dict':
                 result = dict()
@@ -597,9 +598,9 @@ class Handler:
 
                             result = f"{name}{f' {surname}' if surname != '' else surname}"
 
-                        elif value == 'time':
-                            # for database
-                            result = int(time.time()).fr
+                        elif value == 'location':
+                            result = "Неизвестно" if data['location'] is None \
+                                else f"{data['location']['city']}, {data['location']['country']}"
             case 'int':
                 result = 0
 
@@ -612,13 +613,30 @@ class Handler:
             case 'ban':
                 if option == 'user':
                     userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
-                    result = True if userdata[6] else False
+                    result = True if userdata['ban'] else False
                 elif option == 'cause':
                     match data['cause']:
                         case 'abuse':
                             result = 'абьюз сервиса или попытка нарушить работоспособность сервиса, или его процессов'
                         case _:
                             result = 'причину блокировки можешь узнать у администрации сервиса'
+
+            case 'user':
+                if option == 'location':
+                    answer = requests.get(f"http://ip-api.com/json/{data['ip']}").json()
+
+                    if answer['status'] == 'success':
+                        result = {'city': answer['city'], 'country': answer['country']}
+
+                if option == 'title':
+                    items = data['items']
+                    call, markups = items.data, items.message.json['reply_markup']['inline_keyboard']
+
+                    for column in markups:
+                        for markup in column:
+                            if call == markup['callback_data']:
+                                result = markup['text'].split()[-1]
+
 
             case 'usertype':
                 result = 'admin' if data['user'] in self.configs['main']['admins'] else 'user'
@@ -635,10 +653,10 @@ class Handler:
 
                     if len(subscriptions):
                         for subscription in subscriptions:
-                            if subscription[2] == 'active':
+                            if subscription['status'] == 'active':
                                 result = {
-                                    'title': self.configs['subscriptions']['types'][subscription[0]]['title'],
-                                    'expiration': datetime.fromtimestamp(subscription[4]).strftime(template)
+                                    'title': self.configs['subscriptions']['types'][subscription['type']]['title'],
+                                    'expiration': subscription['expiration'].strftime(template)
                                 }
 
             case 'abuse':
@@ -653,13 +671,13 @@ class Handler:
                         result, user = True, self.database.get_data_by_value('users', 'id', data['user'])[0]
                         bot, texts, buttons = data['bot'], data['texts'], data['buttons']
 
-                        self.database.change_data('users', 'ban', 1, user[0])
-                        self.database.change_data('users', 'cause', 'abuse', user[0])
-                        self.database.add_data('logs', id=self.generate('unique-id'), userid=user[0],
-                                               username=user[1], usertype=data['usertype'],
+                        self.database.change_data('users', 'ban', 1, user['id'])
+                        self.database.change_data('users', 'cause', 'abuse', user['id'])
+                        self.database.add_data('logs', id=self.generate('unique-id'), user=user['id'],
+                                               username=user['name'], usertype=data['usertype'],
                                                action=texts.logs('abuse', 'action', action=action))
 
-                        bot.send_message(user[0], texts.error('banned', user=user[0]), parse_mode='markdown',
+                        bot.send_message(user['id'], texts.error('banned', user=user['id']), parse_mode='markdown',
                                          reply_markup=buttons.support())
 
         return result
@@ -720,7 +738,7 @@ class Texts:
                     case 'main':
                         # f"`https://t.me/{self.configs['bot']['login']}?start={userdata[0]}`\n"
                         currency = self.handler.file('read', 'settings')['main']['currency']
-                        subscription = self.handler.recognition('subscription', 'user', user=userdata[0])
+                        subscription = self.handler.recognition('subscription', 'user', user=userdata['id'])
 
                         text = "*ГЛАВНОЕ МЕНЮ*\n\n" \
                                f"💰 Баланс: *{0} {currency}*\n" \
@@ -731,7 +749,7 @@ class Texts:
                             text += f"🗓 Подписка истекает: *{subscription['expiration']}*\n"
 
                         text += f"📨 Рассылки: " \
-                                f"*{len(self.database.get_data_by_value('mailings', 'user', userdata[0]))}* шт.\n\n" \
+                                f"*{len(self.database.get_data_by_value('mailings', 'user', userdata['id']))}* шт.\n\n" \
                                 f"*Подписки*\n" \
                                 f" - Пробная: " \
                                 f"*{self.handler.recognition('subscription', 'price', type='demo')}*\n" \
@@ -753,37 +771,84 @@ class Texts:
         match mode:
             case 'log':
                 item = data['item']
-                text += f"👤 Пользователь: [{item[1]}](tg://user?id={item[0]}) | ID:`{item[0]}`\n" \
-                        f"⚙️ Тип: {self.configs['main']['types']['user'][item[2]].capitalize()}\n" \
-                        f"🗓 Дата: {datetime.fromtimestamp(item[3]).strftime('%H:%M:%S / %d.%m.%Y')}\n" \
-                        f"🔔 Действие: {item[4]}"
+                text += f"👤 Пользователь: [{item['username']}](tg://user?id={item['user']}) | ID:`{item['user']}`\n" \
+                        f"⚙️ Тип: {self.configs['users'][item['usertype']].capitalize()}\n" \
+                        f"🗓 Дата: {item['date'].strftime('%H:%M:%S / %d.%m.%Y')}\n" \
+                        f"🔔 Действие: {item['action']}"
 
                 return text
 
             case 'user':
                 item = data['item']
                 currency = self.handler.file('read', 'settings')['main']['currency']
-                subscription = self.handler.recognition('subscription', 'user', user=item[0])
+                subscription = self.handler.recognition('subscription', 'user', user=item['id'])
 
-                text += f"👤 Имя: [{item[1]}](tg://user?id={item[0]}) | ID:`{item[0]}`\n" \
-                        f"🗓 Дата регистрации: {datetime.fromtimestamp(item[2]).strftime('%H:%M:%S / %d.%m.%Y')}\n" \
-                        f"💰 Баланс: *{item[3]} {currency}*\n" \
-                        f"🚫 Бан: {'❎' if not item[6] else '✅'}\n" \
-                        f"🛍 Подписок: *{len(self.database.get_data_by_value('subscriptions', 'user', item[0]))}*"
+                text += f"👤 Имя: [{item['name']}](tg://user?id={item['id']}) | ID:`{item['id']}`\n" \
+                        f"🗓 Дата регистрации: {item['registration'].strftime('%H:%M:%S / %d.%m.%Y')}\n" \
+                        f"💰 Баланс: *{item['balance']} {currency}*\n" \
+                        f"🚫 Бан: {'❎' if not item['ban'] else '✅'}\n" \
+                        f"🛍 Подписок: *{len(self.database.get_data_by_value('subscriptions', 'user', item['id']))}*"
 
                 if subscription is not None:
-                    text += f"\n⭐️ Подписка: *{subscription['title']}*\n" \
-                            f"🗓 Подписка истекает: *{subscription['expiration']}*\n"
+                    text += f"\n⭐️ Подписка: *{subscription['title'].capitalize()}*\n" \
+                            f"🗓 Подписка истекает: {subscription['expiration']}\n"
 
                 if additional == 'full':
-                    inviter = False if not item[4] else self.database.get_data_by_value('users', 'id', item[4])[0]
-                    inviter = '*Без пригласителя*' if not inviter else f'[{inviter[1]}](tg://user?id={inviter[0]}) | ' \
-                                                                       f'ID:`{inviter[0]}`'
+                    inviter = False if not item['inviter'] else \
+                        self.database.get_data_by_value('users', 'id', item['inviter'])[0]
+                    inviter = "*Без пригласителя*" if not inviter else f"[{inviter['name']}]" \
+                                                                       f"(tg://user?id={inviter['id']}) | " \
+                                                                       f"ID:`{inviter['id']}`"
                     text += f"\n🤝 Пригласил: {inviter}\n" \
-                            f"🔗 Приглашено: *{len(self.database.get_data_by_value('users', 'inviter', item[0]))}*\n" \
-                            f"💳 Платежей: *{len(self.database.get_data_by_value('payments', 'user', item[0]))}*\n" \
-                            f"📨 Рассылок: *{len(self.database.get_data_by_value('mailings', 'user', item[0]))}*\n" \
-                            f"⚙️ Действий : *{len(self.database.get_data_by_value('logs', 'userid', item[0]))}*"
+                            f"🔗 Приглашено: " \
+                            f"*{len(self.database.get_data_by_value('users', 'inviter', item['id']))}*\n" \
+                            f"💳 Платежей:" \
+                            f" *{len(self.database.get_data_by_value('payments', 'user', item['id']))}*\n" \
+                            f"📨 Рассылок: " \
+                            f"*{len(self.database.get_data_by_value('mailings', 'user', item['id']))}*\n" \
+                            f"⚙️ Действий : " \
+                            f"*{len(self.database.get_data_by_value('logs', 'user', item['id']))}*"
+
+                    if item['ip'] != 'None' and item['agent'] != '':
+                        location = self.handler.format(
+                            'str', 'user', 'location',
+                            location=self.handler.recognition('user', 'location', ip=item['ip']))
+
+                        text += f"\n📍 Локация: `{item['ip']}` ({location})\n" \
+                                f"🐾 Юзер-агент: `{item['agent']}`"
+
+                return text
+
+            case 'subscription':
+                item = data['item']
+                userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
+                text += f"⚙️ Тип: *{self.configs['subscriptions']['types'][item['type']]['title'].capitalize()}*\n" \
+                        f"{'🟢' if item['status'] == 'active' else '🔴'} Статус: " \
+                        f"*{self.configs['subscriptions']['statuses'][item['status']].capitalize()}*\n" \
+                        f"👤 Пользователь: [{userdata['name']}](tg://user?id={userdata['id']})\n" \
+                        f"▶️ Активирована: *{item['purchased']}\n*" \
+                        f"⏹ Завершается: *{item['expiration']}*"
+
+                return text
+
+            case 'payment':
+                item = data['item']
+                userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
+                text += f"{item}"
+
+                return text
+
+            case 'referral':
+                item = data['item']
+                userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
+                text += f"{item}"
+
+                return text
+
+            case 'mailing':
+                item = data['item']
+                userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
+                text += f"{item}"
 
                 return text
 
@@ -806,6 +871,23 @@ class Texts:
                     value = 'Пользователь'
                     result = self.show('user', item=item)
 
+                case 'subscriptions':
+                    value = 'Подписка'
+                    result = self.show('subscription', item=item)
+
+                case 'payments':
+                    value = 'Платёж'
+                    result = self.show('payment', item=item)
+
+                case 'referral':
+                    value = 'Реферал'
+                    result = self.show('referral', item=item)
+
+                case 'mailing':
+                    value = 'Рассылка'
+                    result = self.show('mailing', item=item)
+
+
             text += f"{value} #{len(array) - i if reverse else i + 1}\n" \
                     f"{result}\n\n"
             i += 1
@@ -821,7 +903,7 @@ class Texts:
 
                 match option:
                     case 'ban':
-                        status = True if userdata[6] else False
+                        status = True if userdata['id'] else False
                         text = "*Блокировка/разблокировка*\n\n" \
                                f"📌 Текущий статус: {'🟢 Не заблокирован' if not status else '🔴 Заблокирован'}\n\n" \
                                f"⚠️ Чтобы {'заблокировать' if not status else 'разблокировать'} пользователя, " \
@@ -830,9 +912,9 @@ class Texts:
 
                     case 'balance':
                         currency = self.handler.file('read', 'settings')['main']['currency']
-                        summary = self.database.get_data_by_value('users', 'id', data['id'])[0][3]
+                        balance = self.database.get_data_by_value('users', 'id', data['id'])[0]['balance']
                         text += "*Баланс*\n\n" \
-                                f"💰 Текущий баланс: *{summary} {currency}*\n\n" \
+                                f"💰 Текущий баланс: *{balance} {currency}*\n\n" \
                                 "📍 Возможные действия:\n" \
                                 "1️⃣ Добавить средства\n" \
                                 "2️⃣ Изменить баланс\n\n" \
@@ -892,7 +974,7 @@ class Texts:
         match mode:
             case 'banned':
                 userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
-                cause = self.handler.recognition('ban', 'cause', cause=userdata[7])
+                cause = self.handler.recognition('ban', 'cause', cause=userdata['cause'])
                 text += "Ты был заблокирован администрацией, за нарушение правил использования сервиса.\n\n" \
                         f"📍 *Причина*: {cause}.\n\n" \
                         "📌 Если ты считаешь это ошибкой, то ты можешь обратиться в поддержку, " \
@@ -1021,7 +1103,7 @@ class Buttons:
                             '💰 Баланс': {'type': 'control', 'action': 'balance'},
                         }
 
-                        if len(self.database.get_data_by_value('logs', 'userid', user)):
+                        if len(self.database.get_data_by_value('logs', 'user', user)):
                             items['⚙️ Действия'] = {'type': 'get', 'action': 'logs'}
 
                         if len(self.database.get_data_by_value('payments', 'user', user)):
@@ -1091,27 +1173,29 @@ class Buttons:
 
                 match option:
                     case 'ban':
-                        status = True if userdata[6] else False
+                        status = True if userdata['ban'] else False
                         markup.add(types.InlineKeyboardButton(
                             "🔴 Забанить" if not status else "🟢 Разбанить",
-                            callback_data=f"set-ban-{True if not status else False}-user-{userdata[0]}"))
+                            callback_data=f"set-ban-{True if not status else False}-user-{userdata['id']}"))
 
                     case 'balance':
                         markup.add(
                             types.InlineKeyboardButton(
-                                "➕ Добавить", callback_data=f"update-balance-user-{userdata[0]}-add"),
+                                "➕ Добавить", callback_data=f"update-balance-user-{userdata['id']}-add"),
                             types.InlineKeyboardButton(
-                                "🔄 Изменить", callback_data=f"update-balance-user-{userdata[0]}-change")
+                                "🔄 Изменить", callback_data=f"update-balance-user-{userdata['id']}-change")
                         )
 
                 if comeback:
                     markup.add(
-                        types.InlineKeyboardButton("↩️ Назад", callback_data=f"comeback-to-user-menu-{userdata[0]}"))
+                        types.InlineKeyboardButton(
+                            "↩️ Назад", callback_data=f"comeback-to-user-menu-{userdata['id']}"))
 
                 if cancel:
                     markup.add(
-                        types.InlineKeyboardButton(f"🚫 Отменить{'' if type(cancel) == bool else f' {cancel}'}",
-                                                   callback_data=f"cancel-{query}"))
+                        types.InlineKeyboardButton(
+                            f"🚫 Отменить{'' if type(cancel) == bool else f' {cancel}'}",
+                            callback_data=f"cancel-{query}"))
 
             case 'admin':
                 pass
@@ -1122,6 +1206,4 @@ class Buttons:
 if __name__ == '__main__':
     _configs = Configs().initialization()
     _database = Database(_configs)
-
     # _database.recreate_table()
-    _database.add_data('logs', userid=1234567890, username='test', usertype='user', action='TEST LOG')

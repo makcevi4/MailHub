@@ -80,7 +80,7 @@ class Database {
                 $query = "2";
                 break;
             case 'subscriptions':
-                $query = "INSERT INTO `{$table}` (`type`, `user`, `status`, `purchased`, `expiration`) VALUES ('{$data['type']}', {$data['user']}, 'processed', '{$data['dates']['now']}', '{$data['dates']['expiration']}')";
+                $query = "INSERT INTO `{$table}` (`type`, `user`, `status`, `purchased`, `expiration`) VALUES ('{$data['type']}', {$data['user']}, 'active', '{$data['dates']['now']}', '{$data['dates']['expiration']}')";
                 break;
             case 'payments':
                 $query = "4";
@@ -296,8 +296,11 @@ class Formatter {
     }
 
     public function getSubscriptionsDates(){
-        $now= date('Y-m-d H:i:s');
+        date_default_timezone_set('Europe/Helsinki');
+
+        $now = date('Y-m-d H:i:s');
         $expiration = date('Y-m-d H:i:s', strtotime("+{$this->configs['main']['demo']} hours"));
+
         return ['now' => $now, 'expiration' => $expiration];
     }
 

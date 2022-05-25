@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from phpserialize import unserialize
 from telegram_bot_pagination import InlineKeyboardPaginator
 from mysql.connector import Error as SQLError
+from mysql.connector import InternalError as SQLInternalError
 from telebot.apihelper import ApiTelegramException
 from redis.exceptions import ConnectionError
 
@@ -95,6 +96,14 @@ class Database:
         controller = connection.cursor()
         return connection, controller
 
+    @staticmethod
+    def close(connection, controller):
+        connection.close()
+        try:
+            controller.close()
+        except SQLInternalError:
+            pass
+
     def create_pure_table(self, table):
         try:
             query = str()
@@ -168,7 +177,7 @@ class Database:
 
             controller.execute(query)
             connection.commit()
-            connection.close()
+            self.close(connection, controller)
             return True
 
         except SQLError as error:
@@ -176,22 +185,22 @@ class Database:
             return False
 
     def delete_table(self, table):
+        status = False
         try:
             connection, controller = self.connect()
 
             if table in self.tables:
                 controller.execute(f"""DROP TABLE `{table}`""")
-
                 connection.commit()
-                connection.close()
-
-                return True
+                status = True
             else:
                 print(f"ERROR | SQL: Table {table} isn't recognize")
-                return False
+
+            self.close(connection, controller)
         except SQLError as error:
             print(f"ERROR | TYPE: SQL | FUNC: {self.delete_table.__name__} | DESC: {error}")
-            return False
+
+        return status
 
     def recreate_table(self, value='all'):
         if value == 'all':
@@ -205,8 +214,9 @@ class Database:
 
     def get_data(self, table):
         if table in self.tables:
-            controller = self.connect()[1]
+            connection, controller = self.connect()
             controller.execute(f"""SELECT * FROM `{table}`""")
+            self.close(connection, controller)
             return controller.fetchall()
 
     def get_data_by_value(self, table, value, data, value_=None, data_=None):
@@ -234,13 +244,14 @@ class Database:
                             controller.execute(
                                 f"""SELECT * FROM `{table}` WHERE `{value}` = '{data}' OR `{value_}` = '{data_}'""")
 
+                self.close(connection, controller)
                 return controller.fetchall()
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.get_data_by_value.__name__} | DESC: {error}")
                 return False
 
     def add_data(self, table, **items):
-        query = str()
+        status, query = False, str()
         if table in self.tables:
             connection, controller = self.connect()
             try:
@@ -250,7 +261,7 @@ class Database:
                         INSERT INTO `{table}` (`user`, `username`, `usertype`, `date`, `action`)
                         VALUES (
                         {items['userid']}, '{items['username']}', '{items['usertype']}',
-                        '{}', '{items['action']}'
+                        '{datetime.now()}', '{items['action']}'
                         )"""
 
                     case 'users':
@@ -258,7 +269,7 @@ class Database:
                         INSERT INTO `{table}` (
                         `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, `ban`, `cause`, `ip`, `agent`)
                         VALUES (
-                        {items['id']}, '{items['name']}', '{}', 0, {items['inviter']}, 
+                        {items['id']}, '{items['name']}', '{datetime.now()}', 0, {items['inviter']}, 
                         {items['percentage']}, 0, 'None', '', '')
                         """
 
@@ -277,37 +288,37 @@ class Database:
                         query = f"""
                         INSERT INTO `{table}` (`id`, `date`, `status`, `type`, `user`, `summary`, `expiration`)
                         VALUES (
-                        {items['id']}, '{}', '{status}', '{items['type']}', 
+                        {items['id']}, '{datetime.now()}', '{status}', '{items['type']}', 
                         {items['user']}, {items['summary']}, '{items['expiration']}')
                         """
 
                     case 'domains':
                         query = f"""
                         INSERT INTO `{table}` (`domain`, `status`, `registration`)
-                        VALUES ('{items['domain']}', '{items['status']}', '{}')
+                        VALUES ('{items['domain']}', '{items['status']}', '{datetime.now()}')
                         """
 
                     case 'mailings':
                         status = list(self.configs['statuses'].keys())[1]
                         query = f"""
                         INSERT INTO `{table}` (`id`, `date`, `status`, `domain`, `user`, `mail `)
-                        VALUES ({items['id']}, '{}', '{status}', 
+                        VALUES ({items['id']}, '{datetime.now()}', '{status}', 
                         '{items['domain']}', {items['user']}, '{items['mail']}')
                         """
 
                 if query is not None:
+                    status = True
                     controller.execute(query)
                     connection.commit()
-                    connection.close()
-                    return True
 
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.add_data.__name__} | DESC: {error}")
-                return False
-        else:
-            return False
+
+            self.close(connection, controller)
+        return status
 
     def change_data(self, table, setter, data, value, column='id'):
+        status = False
         if table in self.tables:
             try:
                 connection, controller = self.connect()
@@ -331,12 +342,14 @@ class Database:
 
                 connection.commit()
                 connection.close()
-                return True
+                self.close(connection, controller)
+                status = True
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.change_data.__name__} | DESC: {error}")
-                return False
+        return status
 
     def delete_data(self, table, value, data):
+        status = False
         if table in self.tables:
             connection, controller = self.connect()
             try:
@@ -347,12 +360,12 @@ class Database:
 
                 connection.commit()
                 connection.close()
-                return True
+                status = True
             except SQLError as error:
                 print(f"ERROR | TYPE: SQL | FUNC: {self.delete_data.__name__} | DESC: {error}")
-                return False
-        else:
-            return False
+
+            self.close(connection, controller)
+        return status
 
 
 class Sessions:
@@ -466,6 +479,7 @@ class Handler:
                     usertype = self.recognition('usertype', user=data['user'])
                     self.database.add_data('logs', userid=data['user'], username=username, usertype=usertype, action=log)
 
+
     @staticmethod
     def file(action, file, data=None):
         filepath = str()
@@ -533,8 +547,7 @@ class Handler:
                         case 'day':
                             calculated = current + timedelta(days=data['duration'])
 
-                    expiration = int(calculated.timestamp())
-                    result = {'now': now, 'expiration': expiration}
+                    result = {'now': current, 'expiration': calculated}
 
         return result
 
@@ -584,6 +597,9 @@ class Handler:
 
                             result = f"{name}{f' {surname}' if surname != '' else surname}"
 
+                        elif value == 'time':
+                            # for database
+                            result = int(time.time()).fr
             case 'int':
                 result = 0
 
@@ -1107,4 +1123,5 @@ if __name__ == '__main__':
     _configs = Configs().initialization()
     _database = Database(_configs)
 
-    _database.recreate_table()
+    # _database.recreate_table()
+    _database.add_data('logs', userid=1234567890, username='test', usertype='user', action='TEST LOG')

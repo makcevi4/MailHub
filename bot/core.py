@@ -574,6 +574,13 @@ class Handler:
                             for user in users:
                                 result.append(user['id'])
 
+                    case 'services':
+                        services = self.database.get_data('services')
+
+                        if value is not None:
+                            for service in services:
+                                result.append(service[value])
+
             case 'dict':
                 result = dict()
 
@@ -690,11 +697,11 @@ class Handler:
             case 'emoji':
                 if option == 'status':
                     match data['status']:
-                        case 'accepted' | 'success':
+                        case 'accepted' | 'success' | 'active':
                             result = '🟢'
                         case 'processing' | 'waiting':
                             result = '🟡'
-                        case 'rejected' | 'error':
+                        case 'rejected' | 'error' | 'inactive':
                             result = '🔴'
         return result
 
@@ -902,6 +909,15 @@ class Texts:
 
                 return text
 
+            case 'service':
+                item = data['item']
+                text += f"📍 Название: *{item['name']}*\n" \
+                        f"🔗 Домен: {item['domain']}\n" \
+                        f"{self.handler.recognition('emoji', 'status', status=item['status'])} " \
+                        f"Статус: *{self.configs['services']['statuses'][item['status']].capitalize()}*"
+
+                return text
+
             case _:
                 array = data['array']
 
@@ -973,15 +989,12 @@ class Texts:
                 match option:
                     case 'services':
                         services = self.database.get_data('services')
-                        text = "*Управление сервисами*\n\n"
-
-                        match step:
-                            case 1:
-                                text += f"📌 Всего сервисов: *{len(services)}*\n\n" \
-                                        f"*Сервисы*\n"
-                                for service in services:
-                                    text += f"{'🟢' if service['status'] == 'active' else '🔴'} {service['name']}\n"
-                                text += "\n🔽 Выбери сервис 🔽"
+                        text = "*Управление сервисами*\n\n" \
+                               f"📌 Всего сервисов: *{len(services)}*\n\n" \
+                               "*Сервисы*\n"
+                        for service in services:
+                            text += f"{'🟢' if service['status'] == 'active' else '🔴'} {service['name']}\n"
+                        text += "\n🔽 Выбери сервис 🔽"
 
         return text
 
@@ -1022,6 +1035,23 @@ class Texts:
                     else:
                         text += "🔽 Подтверди добавление 🔽"
 
+                elif mode == 'update-service':
+                    service = self.database.get_data_by_value('services', 'name', data['service'])[0]
+
+                    match option:
+                        case 'title':
+                            text += "*Изменение названия*\n\n" \
+                                    f"📍 Текущее название: *{service['name']}*\n\n" \
+                                    f"📌 Для того, чтобы изменить название сервиса, введи новое, " \
+                                    f"на которое хочешь заменить. В противном случае отмени действие.\n\n" \
+                                    f"🔽 Введи название 🔽"
+
+                        case 'domain':
+                            text += "*Изменение домена*\n\n" \
+                                    f"📍 Текущий домен: {service['domain']}\n\n" \
+                                    f"📌 Для того, чтобы изменить домен сервиса, введи новый, " \
+                                    f"на который хочешь заменить. В противном случае отмени действие.\n\n" \
+                                    f"🔽 Введи домен 🔽"
 
 
             case 'user':
@@ -1056,6 +1086,12 @@ class Texts:
                         if value == 'ban':
                             text = f"{'Забанил' if data['status'] else 'Разбанил'} пользователя " \
                                    f"[{data['name']}](tg://user?id={data['id']}) | ID:`{data['id']}`."
+                    case 'service':
+                        if value == 'status':
+                            service = data['array']
+                            text = f"{'Включил' if service['status'] == 'active' else 'Выключил'} сервис " \
+                                   f"{service['name']}."
+
 
         return text
 
@@ -1085,6 +1121,18 @@ class Texts:
                        f"{values['second']} и поэтому некого искать. Эта функция станет доступной тогда, " \
                        f"когда будет добавлен первый {values['third']}."
 
+            case 'exist':
+                match option:
+                    case 'service-title':
+                        text = f"Сервис с таким названием уже добавлен ({data['title']})."
+                    case 'service-domain':
+                        service = self.database.get_data_by_value('services', 'domain', data['domain'])[0]['name']
+                        text = f"Домен {data['domain']} уже есть в базе данных и он принадлежит сервису *{service}*."
+
+            case 'same':
+                text += f"Значение *{data['value']}* не должно совпадать с текущим. " \
+                        f"Попробуй ещё раз или же отмени действие."
+
             case 'less':
                 text += "Значение должно быть *не менее 1*. Попробуй ещё раз или же отмени действие."
 
@@ -1096,6 +1144,10 @@ class Texts:
                         value = 'пользователь'
 
                 text += f"{value.capitalize()} с идентификатором «*{data['id']}*» не найден. "
+
+            case 'not-link':
+                text += "Неправильный формат ссылки. Попробуй ввести ссылку " \
+                        "ещё раз в формате https://yourdomain.com."
 
             case 'not-numeric':
                 text += "Значение должно быть в числовом формате. Введи значение ещё раз или отмени действие."
@@ -1114,7 +1166,12 @@ class Texts:
                 if option == 'add-balance':
                     text += "Средства успешно добавлены. Формируем данные..."
                 elif option == 'change-balance':
-                    text += "Баланс успешно обновлеён. Формируем данные..."
+                    text += "Баланс успешно обновлен. Формируем данные..."
+                elif option == 'service-title':
+                    text += f"Название сервиса успешно изменено с *{data['old']}* на *{data['new']}*"
+                elif option == 'service-domain':
+                    text += f"Домен сервиса успешно изменён с {data['old']} на {data['new']}"
+
 
         return text
 
@@ -1247,6 +1304,41 @@ class Buttons:
                             types.KeyboardButton('➕ Добавить'),
                             types.KeyboardButton('⚙️ Управлять') if len(self.database.get_data('services')) > 0 else ''
                         )
+
+                    case 'service':
+                        comeback = False
+                        service = data['array']
+                        markup, markups, row, additional = dict(), list(), list(), dict()
+
+                        mode = '🔴 Выключить' if service['status'] == 'active' else '🟢 Включить'
+                        items = {
+                            mode: {'type': 'set', 'action': 'status'},
+                            '📍 Название': {'type': 'update', 'action': 'title'},
+                            '🔗 Домен': {'type': 'update', 'action': 'domain'},
+                            '➖ Удалить сервис': {'type': 'delete', 'action': 'data'}
+                        }
+
+                        for name, values in items.items():
+                            if len(row) < width:
+                                row.append({
+                                    'text': name,
+                                    'callback_data': f"{values['type']}-service-{service['name']}-{values['action']}"
+                                })
+                                if values['action'] == 'status':
+                                    markups.append(row)
+                                    row = list()
+
+                            if len(row) == width:
+                                markups.append(row)
+                                row = list()
+                        else:
+                            if len(row) != 0:
+                                markups.append(row)
+
+                        markups.append([{'text': '↩️ Назад', 'callback_data': 'comeback-to-select-services-admin'}])
+                        markup['inline_keyboard'] = markups
+                        markup = str(markup).replace('\'', '"')
+
             case 'user':
                 match menu:
                     case 'main':
@@ -1311,16 +1403,15 @@ class Buttons:
                     case 'services':
                         match step:
                             case 1:
-                                print(data)
                                 services = self.database.get_data('services')
-                                width = data['width'] in data.keys() else ''
+                                width = data['width'] if 'width' in data.keys() else 2
                                 markup, markups, row, additional = dict(), list(), list(), dict()
 
                                 for service in services:
                                     if len(row) < width:
                                         row.append({
                                             'text': service['name'],
-                                            'callback_data': f"select-service-{service['name']}"
+                                            'callback_data': f"select-admin-service-{service['name']}"
                                         })
 
                                     if len(row) == width:
@@ -1332,7 +1423,6 @@ class Buttons:
 
                                 markup['inline_keyboard'] = markups
                                 markup = str(markup).replace('\'', '"')
-
 
         return markup
 

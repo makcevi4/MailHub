@@ -79,6 +79,10 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         if 'пользователя' in message.text:
                             bot.send_message(message.from_user.id, texts.menu('admin', 'users'),
                                              parse_mode='markdown', reply_markup=buttons.menu('admin', 'users'))
+                    elif 'добавление сервиса' in message.text:
+                        bot.send_message(message.from_user.id, texts.menu('admin', 'services'),
+                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'services'))
+
 
             #  - ADMIN
             abuse = handler.recognition('abuse', action=message.text, user=message.from_user.id, usertype=usertype,
@@ -194,6 +198,60 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     except ApiTelegramException:
                         pass
 
+            # Displays | Menu | Users
+            if message.text == '🛠 Сервисы' and not abuse:
+                bot.send_message(message.from_user.id, texts.menu('admin', 'services'),
+                                 parse_mode='markdown', reply_markup=buttons.menu('admin', 'services'))
+
+            # Process | Services | Add service
+            if message.text == '➕ Добавить' and not abuse:
+                sessions.start(message.from_user.id, 'admin', 'add-service', message.message_id)
+                sessions.admins[message.from_user.id]['actions']['step'] += 1
+
+                delete = bot.send_message(message.from_user.id,
+                                          texts.processes('admin', 'add-service', step=1),
+                                          parse_mode='markdown',
+                                          reply_markup=buttons.cancel_reply('добавление сервиса'))
+                sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+            # Handling | Add service
+            if message.from_user.id in sessions.admins \
+                    and sessions.admins[message.from_user.id]['type'] == 'add-service':
+                if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
+                    text, markups = str(), str()
+                    step = sessions.admins[message.from_user.id]['actions']['step']
+                    delete = sessions.admins[message.from_user.id]['message']['delete']
+
+                    bot.delete_message(message.chat.id, message.id)
+
+                    match step:
+                        case 1:
+                            step += 1
+                            sessions.admins[message.from_user.id]['actions']['data']['title'] = message.text
+                            text = texts.processes('admin', 'add-service', step=step, title=message.text)
+                            markups = buttons.comeback_inline('to-set-service-title')
+                        case 2:
+                            if 'http' in message.text or 'https' in message.text:
+                                step += 1
+                                title = sessions.admins[message.from_user.id]['actions']['data']['title']
+                                sessions.admins[message.from_user.id]['actions']['data']['domain'] = message.text
+
+                                text = texts.processes('admin', 'add-service', option=False, step=step,
+                                                       title=title, domain=message.text)
+                                markups = buttons.confirm('add-service', comeback='to-set-service-domain')
+                            else:
+                                text = texts.processes('admin', 'add-service', step=step, title=message.text,
+                                                       error='Неправильный формат домена. Попробуй ввести домен '
+                                                             'ещё раз в формате https://yourdomain.com.')
+                                markups = buttons.comeback_inline('to-set-service-title')
+
+                    bot.delete_message(message.chat.id, delete)
+                    delete = bot.send_message(message.chat.id, text=text, parse_mode='markdown', reply_markup=markups)
+                    sessions.admins[message.from_user.id]['actions']['step'] = step
+                    sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+
+
             # - USER
 
     @bot.callback_query_handler(func=lambda call: True)
@@ -226,6 +284,24 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                            "🔽 Управление данными 🔽"
                     markups = buttons.menu('admin', 'user', id=userdata[0]['id'])
 
+                elif 'to-set-service' in call.data:
+                    if call.from_user.id in sessions.admins:
+                        step = sessions.admins[call.from_user.id]['actions']['step']
+                        step -= 1
+                        match queries[-1]:
+                            case 'title':
+                                text = texts.processes('admin', 'add-service', step=step)
+                                markups = buttons.cancel_reply('добавление сервиса')
+                            case 'domain':
+                                title = sessions.admins[call.from_user.id]['actions']['data']['title']
+                                text = texts.processes('admin', 'add-service', step=step, title=title)
+                                markups = buttons.comeback_inline('to-set-service-title')
+
+                        sessions.admins[call.from_user.id]['actions']['step'] = step
+
+                    else:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+
                 try:
                     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
                                           text=text, parse_mode='markdown', reply_markup=markups)
@@ -239,6 +315,11 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                     except ApiTelegramException:
                         bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+
+# ----------------------------------------------
+            case 'confirm':
+                print('---CONFIRM')
+# ----------------------------------------------
 
             case 'close':
                 bot.answer_callback_query(callback_query_id=call.id, text='Закрыто ✅')
@@ -340,7 +421,11 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     case 'user':
                         title = f"{handler.recognition('user', 'title', items=call)} пользователя"
                         user, mode = int(queries[2]), queries[-1]
-                        array = database.get_data_by_value(mode, 'user', user)
+
+                        if mode == 'referrals':
+                            array = database.get_data_by_value('users', 'inviter', user)
+                        else:
+                            array = database.get_data_by_value(mode, 'user', user)
                         data = handler.paginator(texts.show(mode, array=array), f'user-{mode}', id=user)
 
                 bot.send_message(call.message.chat.id, f'*{title}*\n\n{data[0]}',

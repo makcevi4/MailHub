@@ -22,16 +22,21 @@ from redis.exceptions import ConnectionError
 
 class Configs:
     users = {'admin': 'администратор', 'user': 'пользователь'}
+    services = {'statuses': {'active': 'работает', 'inactive': 'не работает'}}
     payments = {
-        'types':{'deposit': 'депозит'},
+        'types': {'deposit': 'депозит'},
         'statuses': {'accepted': "принято", 'processing': "в процессе", 'rejected': "отклонено"}}
     subscriptions = {
         'types': {
             'demo': {'title': 'пробная', 'type': 'hour', 'duration': 2},
             'week': {'title': 'недельная', 'type': 'day', 'duration': 7},
-            'month': {'title': 'недельная', 'type': 'day', 'duration': 30}
+            'month': {'title': 'месячная', 'type': 'day', 'duration': 30}
         },
         'statuses': {'active': 'активна', 'inactive': 'неактивна'}
+    }
+    mailings = {
+        'types': {},
+        'statuses': {'success': "успешно", 'waiting': "ожидание", 'error': "ошибка"}
     }
 
     @staticmethod
@@ -70,14 +75,16 @@ class Configs:
                             configs[section][key] = data
 
         configs['users'] = self.users
+        configs['services'] = self.services
         configs['payments'] = self.payments
         configs['subscriptions'] = self.subscriptions
+        configs['mailings'] = self.mailings
 
         return configs
 
 
 class Database:
-    tables = ['logs', 'users', 'subscriptions', 'payments', 'domains', 'mailings']
+    tables = ['logs', 'users', 'subscriptions', 'payments', 'services', 'mailings']
 
     def __init__(self, configs):
         self.configs = configs
@@ -152,16 +159,16 @@ class Database:
                     `status` VARCHAR(255) NOT NULL,
                     `type` VARCHAR(255) NOT NULL,
                     `user` INT(11) NOT NULL,
-                    `summary` FLOAT NOT NULL,
+                    `amount` FLOAT NOT NULL,
                     `expiration` DATETIME NOT NULL
                     )"""
 
-                case 'domains':
+                case 'services':
                     query = f"""
                     CREATE TABLE `{table}` (
+                    `name` VARCHAR(255) NOT NULL,
                     `domain` VARCHAR(255) NOT NULL,
-                    `status` VARCHAR(255) NOT NULL,
-                    `registration` DATETIME NOT NULL
+                    `status` VARCHAR(255) NOT NULL
                     )"""
 
                 case 'mailings':
@@ -170,7 +177,7 @@ class Database:
                     `id` VARCHAR(255) NOT NULL,
                     `date` DATETIME NOT NULL,
                     `status` VARCHAR(255) NOT NULL,
-                    `domain` VARCHAR(255) NOT NULL,
+                    `service` VARCHAR(255) NOT NULL,
                     `user` INT(11) NOT NULL,
                     `mail` JSON NOT NULL
                     )"""
@@ -274,7 +281,6 @@ class Database:
 
                     case 'subscriptions':
                         status = list(self.configs['subscriptions']['statuses'].keys())[0]
-
                         query = f"""
                         INSERT INTO `{table}` (`type`, `user`, `status`, `purchased`, `expiration`)
                         VALUES (
@@ -285,24 +291,25 @@ class Database:
                     case 'payments':
                         status = list(self.configs['payments']['statuses'].keys())[1]
                         query = f"""
-                        INSERT INTO `{table}` (`id`, `date`, `status`, `type`, `user`, `summary`, `expiration`)
+                        INSERT INTO `{table}` (`id`, `date`, `status`, `type`, `user`, `amount`, `expiration`)
                         VALUES (
                         {items['id']}, '{datetime.now()}', '{status}', '{items['type']}', 
-                        {items['user']}, {items['summary']}, '{items['expiration']}')
+                        {items['user']}, {items['amount']}, '{items['expiration']}')
                         """
 
-                    case 'domains':
+                    case 'services':
+                        status = list(self.configs['services']['statuses'].keys())[-1]
                         query = f"""
-                        INSERT INTO `{table}` (`domain`, `status`, `registration`)
-                        VALUES ('{items['domain']}', '{items['status']}', '{datetime.now()}')
+                        INSERT INTO `{table}` (`name`, `domain`, `status`)
+                        VALUES ('{items['name']}', '{items['domain']}', '{status}')
                         """
 
                     case 'mailings':
-                        status = list(self.configs['statuses'].keys())[1]
+                        status = list(self.configs['mailings']['statuses'].keys())[1]
                         query = f"""
-                        INSERT INTO `{table}` (`id`, `date`, `status`, `domain`, `user`, `mail `)
-                        VALUES ({items['id']}, '{datetime.now()}', '{status}', 
-                        '{items['domain']}', {items['user']}, '{items['mail']}')
+                        INSERT INTO `{table}` (`id`, `date`, `status`, `service`, `user`, `mail`)
+                        VALUES ('{items['id']}', '{datetime.now()}', '{status}', 
+                        '{items['service']}', {items['user']}, '{items['mail']}')
                         """
 
                 if query is not None:
@@ -637,7 +644,6 @@ class Handler:
                             if call == markup['callback_data']:
                                 result = markup['text'].split()[-1]
 
-
             case 'usertype':
                 result = 'admin' if data['user'] in self.configs['main']['admins'] else 'user'
 
@@ -663,7 +669,9 @@ class Handler:
                 result, action = False, data['action']
 
                 actions = [
-                    '👨🏻‍💻 Пользователи', '🛠 Сервисы', '⭐️ Проект'
+                    '👨🏻‍💻 Пользователи', '👁 Посмотреть всех', '🕹 Управлять',
+                    '🛠 Сервисы', '➕ Добавить', '⚙️ Управлять',
+                    '⭐️ Проект'
                 ]
 
                 if action in actions:
@@ -679,7 +687,15 @@ class Handler:
 
                         bot.send_message(user['id'], texts.error('banned', user=user['id']), parse_mode='markdown',
                                          reply_markup=buttons.support())
-
+            case 'emoji':
+                if option == 'status':
+                    match data['status']:
+                        case 'accepted' | 'success':
+                            result = '🟢'
+                        case 'processing' | 'waiting':
+                            result = '🟡'
+                        case 'rejected' | 'error':
+                            result = '🔴'
         return result
 
     def generate(self, mode):
@@ -730,6 +746,15 @@ class Texts:
                                 "1️⃣ Просмотр всех пользователей\n" \
                                 "2️⃣ Просмотр и изменение данных пользователя\n\n" \
                                 "🔽 Выбери действие 🔽"
+
+                    case 'services':
+                        text += "*Сервисы*\n\n" \
+                                "📍 Доступные действия:\n" \
+                                "1️⃣ Добавление нового сервиса\n"
+                        if len(self.database.get_data('services')) > 0:
+                            text += "2️⃣ Управление сервисом и его данными\n"
+
+                        text += "\n🔽 Выбери действие 🔽"
 
             case 'user':
                 userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
@@ -825,30 +850,55 @@ class Texts:
                 text += f"⚙️ Тип: *{self.configs['subscriptions']['types'][item['type']]['title'].capitalize()}*\n" \
                         f"{'🟢' if item['status'] == 'active' else '🔴'} Статус: " \
                         f"*{self.configs['subscriptions']['statuses'][item['status']].capitalize()}*\n" \
-                        f"👤 Пользователь: [{userdata['name']}](tg://user?id={userdata['id']})\n" \
-                        f"▶️ Активирована: *{item['purchased']}\n*" \
-                        f"⏹ Завершается: *{item['expiration']}*"
+                        f"👤 Пользователь: " \
+                        f"[{userdata['name']}](tg://user?id={userdata['id']}) | ID:`{userdata['id']}`\n" \
+                        f"▶️ Активирована: *{item['purchased'].strftime('%H:%M:%S / %d.%m.%Y')}\n*" \
+                        f"⏹ Завершается: *{item['expiration'].strftime('%H:%M:%S / %d.%m.%Y')}*"
 
                 return text
 
             case 'payment':
                 item = data['item']
+                currency = self.handler.file('read', 'settings')['main']['currency']
                 userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
-                text += f"{item}"
+                text += f"🆔 Уникальный ID: `{item['id']}`\n" \
+                        f"⚙️ Тип: *{self.configs['payments']['types'][item['type']].capitalize()}*\n" \
+                        f"{self.handler.recognition('emoji', 'status', status=item['status'])} " \
+                        f"Статус: *{self.configs['payments']['statuses'][item['status']].capitalize()}*\n" \
+                        f"💰 Сумма: *{item['amount']} {currency}*\n" \
+                        f"👤 Пользователь: [{userdata['name']}](tg://user?id={userdata['id']}) | ID:`{userdata['id']}`\n" \
+                        f"🗓 Дата: {item['date'].strftime('%H:%M:%S / %d.%m.%Y')}"
 
                 return text
 
             case 'referral':
                 item = data['item']
-                userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
-                text += f"{item}"
+                currency = self.handler.file('read', 'settings')['main']['currency']
+                subscription = self.handler.recognition('subscription', 'user', user=item['id'])
+                text += f"👤 Имя: [{item['name']}](tg://user?id={item['id']}) | ID:`{item['id']}`\n" \
+                        f"💰 Баланс: *{item['balance']} {currency}*\n" \
+                        f"⭐️ Подписка: *{subscription['title'].capitalize() if subscription is not None else 'Нет'}*\n"
+
+                if subscription is not None:
+                    text += f"🗓 Подписка истекает: {subscription['expiration']}\n"
+
+                text += f"📨 Рассылок: *{len(self.database.get_data_by_value('mailings', 'user', item['id']))}*\n" \
+                        f"🚫 Бан: {'❎' if not item['ban'] else '✅'}"
 
                 return text
 
             case 'mailing':
                 item = data['item']
                 userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
-                text += f"{item}"
+                extended_data = json.loads(item['mail'])
+                text += f"🆔 Уникальный ID:`{item['id']}`\n" \
+                        f"🗓 Дата: *{item['date'].strftime('%H:%M:%S / %d.%m.%Y')}*\n" \
+                        f"{self.handler.recognition('emoji', 'status', status=item['status'])} " \
+                        f"Статус: *{self.configs['mailings']['statuses'][item['status']].capitalize()}*\n" \
+                        f"⚙️ Сервис: {item['service']}\n" \
+                        f"👤 Пользователь: [{userdata['name']}](tg://user?id={userdata['id']}) | " \
+                        f"ID:`{userdata['id']}`\n\n" \
+                        f"*Данные*"
 
                 return text
 
@@ -879,14 +929,13 @@ class Texts:
                     value = 'Платёж'
                     result = self.show('payment', item=item)
 
-                case 'referral':
+                case 'referrals':
                     value = 'Реферал'
                     result = self.show('referral', item=item)
 
-                case 'mailing':
+                case 'mailings':
                     value = 'Рассылка'
                     result = self.show('mailing', item=item)
-
 
             text += f"{value} #{len(array) - i if reverse else i + 1}\n" \
                     f"{result}\n\n"
@@ -932,6 +981,34 @@ class Texts:
                             "📌 Для того, чтобы найти пользователя, введи его ID. " \
                             "В противном случае отмени действие.\n\n" \
                             "🔽 Введи идентификатор 🔽"
+
+                elif mode == 'add-service':
+                    value = 'данные'
+
+                    text += f"*Добавление сервиса ({step}/{3})*\n\n"
+
+                    if 'error' in data.keys():
+                        text += f"⚠️ {data['error']}\n\n"
+
+                    text += f"📍 Название: *{data['title'] if 'title' in data.keys() else 'Не установлено'}*\n" \
+                            f"🔗 Домен: {data['domain'] if 'domain' in data.keys() else '*Не установлен*'}\n\n" \
+
+                    if option is None:
+                        text += f"📌 Нужно ввести: "
+
+                        match step:
+                            case 1:
+                                value = 'название'
+                                text += f"*{value.capitalize()} сервиса*"
+                            case 2:
+                                value = 'домен'
+                                text += f'*{value}*'
+
+                        text += f"\n\n🔽 Введи {value} 🔽"
+                    else:
+                        text += "🔽 Подтверди добавление 🔽"
+
+
 
             case 'user':
                 match mode:
@@ -1068,6 +1145,19 @@ class Buttons:
         return markup.add(types.InlineKeyboardButton(
             '↩️ Назад' if text is None else f'↩️ Назад к {text}', callback_data=query))
 
+    @staticmethod
+    def confirm(action, **data):
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton('✅ Подтвердить', callback_data=f"confirm-{action}"))
+
+        if 'comeback' in data.keys():
+            markup.add(types.InlineKeyboardButton('↩️ Назад', callback_data=f"comeback-{data['comeback']}"))
+
+        if 'cancel' in data.keys():
+            markup.add(types.InlineKeyboardButton('🚫 Отменить', callback_data=f"cancel-{data['cancel']}"))
+
+        return markup
+
     def menu(self, usertype, menu, additional=False, markups_type='reply', width=2, **data):
         markup, comeback, query = None, True, None
 
@@ -1113,7 +1203,7 @@ class Buttons:
                             items['⭐️ Подписки'] = {'type': 'get', 'action': 'subscriptions'}
 
                         if len(self.database.get_data_by_value('users', 'inviter', user)):
-                            items['🔗 Рефералы'] = {'type': 'get', 'action': 'referral'}
+                            items['🔗 Рефералы'] = {'type': 'get', 'action': 'referrals'}
 
                         if len(self.database.get_data_by_value('mailings', 'user', user)):
                             items['📨 Рассылки'] = {'type': 'get', 'action': 'mailings'}
@@ -1138,6 +1228,11 @@ class Buttons:
                         markup['inline_keyboard'] = markups
                         markup = str(markup).replace('\'', '"')
 
+                    case 'services':
+                        markup.add(
+                            types.KeyboardButton('➕ Добавить'),
+                            types.KeyboardButton('⚙️ Управлять') if len(self.database.get_data('services')) > 0 else ''
+                        )
             case 'user':
                 match menu:
                     case 'main':
@@ -1207,3 +1302,14 @@ if __name__ == '__main__':
     _configs = Configs().initialization()
     _database = Database(_configs)
     # _database.recreate_table()
+    _database.add_data(
+        'mailings',
+        id='test234244375675',
+        service='test',
+        user=1603149905,
+        mail=json.dumps({
+            'recipient': 'test@test.com',
+            'domain': 'test.com',
+            'template': 'test.com/template'
+        })
+    )

@@ -69,7 +69,6 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         bot.send_message(message.from_user.id, texts.menu('admin', 'users'),
                                          parse_mode='markdown', reply_markup=buttons.menu('admin', 'users'))
 
-
             # Buttons handling | Cancel
             if '❌ Отменить' in message.text:
                 sessions.clear(usertype, message.from_user.id)
@@ -246,11 +245,19 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                 markups = buttons.comeback_inline('to-set-service-title')
 
                     bot.delete_message(message.chat.id, delete)
-                    delete = bot.send_message(message.chat.id, text=text, parse_mode='markdown', reply_markup=markups)
+                    delete = bot.send_message(message.chat.id, text=text, parse_mode='markdown',
+                                              reply_markup=markups, disable_web_page_preview=True)
                     sessions.admins[message.from_user.id]['actions']['step'] = step
                     sessions.admins[message.from_user.id]['message']['delete'] = delete.id
 
+            # Process | Services | Control services
+            if message.text == '⚙️ Управлять' and not abuse:
+                bot.send_message(message.from_user.id,
+                                 texts.control('admin', 'services', step=1),
+                                 parse_mode='markdown',
+                                 reply_markup='')
 
+                buttons.control('admin', 'services', step=1)
 
             # - USER
 
@@ -316,10 +323,41 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     except ApiTelegramException:
                         bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
 
-# ----------------------------------------------
             case 'confirm':
-                print('---CONFIRM')
-# ----------------------------------------------
+                text, markups = str(), str()
+
+                if 'add-service' in call.data:
+                    if call.from_user.id in sessions.admins:
+                        data = sessions.admins[call.from_user.id]['actions']['data']
+                        bot.answer_callback_query(callback_query_id=call.id, text='Успешно подтверждено ✅')
+
+                        # ----------------------------------------------------- #
+                        # CREATING DIRECTORY WITH DOMAIN AND INITIALIZE CONFIGS #
+                        # ----------------------------------------------------- #
+
+                        database.add_data('services', name=data['title'], domain=data['domain'])
+                        text = texts.menu('admin', 'services')
+                        markups = buttons.menu('admin', 'services')
+                        sessions.clear(handler.recognition('usertype', user=call.from_user.id), call.from_user.id)
+
+                    else:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+                        bot.delete_message(call.from_user.id, call.message.id)
+
+                try:
+                    bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
+                                          text=text, parse_mode='markdown', reply_markup=markups)
+                except ApiTelegramException:
+                    try:
+                        bot.delete_message(call.message.chat.id, call.message.message_id)
+                        delete = bot.send_message(call.from_user.id, text, reply_markup=markups, parse_mode='markdown')
+
+                        if call.from_user.id in sessions.admins:
+                            sessions.admins[call.from_user.id]['message']['delete'] = delete.id
+
+                    except ApiTelegramException:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+
 
             case 'close':
                 bot.answer_callback_query(callback_query_id=call.id, text='Закрыто ✅')

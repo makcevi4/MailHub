@@ -944,7 +944,7 @@ class Texts:
         separated.append(text)
         return separated
 
-    def control(self, mode, option=None, **data):
+    def control(self, mode, option=None, step=1, **data):
         text = str()
         match mode:
             case 'user':
@@ -968,6 +968,20 @@ class Texts:
                                 "1️⃣ Добавить средства\n" \
                                 "2️⃣ Изменить баланс\n\n" \
                                 "🔽 Выбери действие 🔽"
+
+            case 'admin':
+                match option:
+                    case 'services':
+                        services = self.database.get_data('services')
+                        text = "*Управление сервисами*\n\n"
+
+                        match step:
+                            case 1:
+                                text += f"📌 Всего сервисов: *{len(services)}*\n\n" \
+                                        f"*Сервисы*\n"
+                                for service in services:
+                                    text += f"{'🟢' if service['status'] == 'active' else '🔴'} {service['name']}\n"
+                                text += "\n🔽 Выбери сервис 🔽"
 
         return text
 
@@ -1258,7 +1272,7 @@ class Buttons:
 
         return markup
 
-    def control(self, mode, option=None, **data):
+    def control(self, mode, option=None, step=1, **data):
         markup = types.InlineKeyboardMarkup()
 
         match mode:
@@ -1293,7 +1307,32 @@ class Buttons:
                             callback_data=f"cancel-{query}"))
 
             case 'admin':
-                pass
+                match option:
+                    case 'services':
+                        match step:
+                            case 1:
+                                print(data)
+                                services = self.database.get_data('services')
+                                width = data['width'] in data.keys() else ''
+                                markup, markups, row, additional = dict(), list(), list(), dict()
+
+                                for service in services:
+                                    if len(row) < width:
+                                        row.append({
+                                            'text': service['name'],
+                                            'callback_data': f"select-service-{service['name']}"
+                                        })
+
+                                    if len(row) == width:
+                                        markups.append(row)
+                                        row = list()
+                                else:
+                                    if len(row) != 0:
+                                        markups.append(row)
+
+                                markup['inline_keyboard'] = markups
+                                markup = str(markup).replace('\'', '"')
+
 
         return markup
 
@@ -1302,14 +1341,14 @@ if __name__ == '__main__':
     _configs = Configs().initialization()
     _database = Database(_configs)
     # _database.recreate_table()
-    _database.add_data(
-        'mailings',
-        id='test234244375675',
-        service='test',
-        user=1603149905,
-        mail=json.dumps({
-            'recipient': 'test@test.com',
-            'domain': 'test.com',
-            'template': 'test.com/template'
-        })
-    )
+    # _database.add_data(
+    #     'mailings',
+    #     id='test234244375675',
+    #     service='test',
+    #     user=1603149905,
+    #     mail=json.dumps({
+    #         'recipient': 'test@test.com',
+    #         'domain': 'test.com',
+    #         'template': 'test.com/template'
+    #     })
+    # )

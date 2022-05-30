@@ -1,3 +1,4 @@
+import sys
 import time
 import json
 import logging
@@ -68,19 +69,43 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     elif 'пользователям' in message.text:
                         bot.send_message(message.from_user.id, texts.menu('admin', 'users'),
                                          parse_mode='markdown', reply_markup=buttons.menu('admin', 'users'))
+                    elif 'проекту' in message.text:
+                        bot.send_message(message.from_user.id, texts.menu('admin', 'project'),
+                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'project'))
 
             # Buttons handling | Cancel
             if '❌ Отменить' in message.text:
-                sessions.clear(usertype, message.from_user.id)
-
+                text, markups = str(), str()
                 if usertype == 'admin':
                     if 'поиск' in message.text:
                         if 'пользователя' in message.text:
-                            bot.send_message(message.from_user.id, texts.menu('admin', 'users'),
-                                             parse_mode='markdown', reply_markup=buttons.menu('admin', 'users'))
+                            text = texts.menu('admin', 'users')
+                            markups = buttons.menu('admin', 'users')
+
                     elif 'добавление сервиса' in message.text:
-                        bot.send_message(message.from_user.id, texts.menu('admin', 'services'),
-                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'services'))
+                        text = texts.menu('admin', 'services')
+                        markups = buttons.menu('admin', 'services')
+
+                    elif 'формировку сообщения' in message.text:
+                        text = texts.menu('admin', 'messaging')
+                        markups = buttons.menu('admin', 'messaging')
+
+                    elif 'изменение цены' in message.text:
+                        if message.from_user.id in sessions.admins:
+                            session = sessions.admins[message.from_user.id]
+                            delete = session['message']['delete']
+                            subscription = session['actions']['data']['subscription']
+
+                            bot.delete_message(message.from_user.id, delete)
+
+                            text = texts.control('admin', 'subscription', subscription=subscription)
+                            markups = buttons.control('admin', 'subscription', subscription=subscription)
+                        else:
+                            text = texts.menu('admin', 'subscriptions')
+                            markups = buttons.menu('admin', 'subscriptions')
+
+                bot.send_message(message.from_user.id, text, parse_mode='markdown', reply_markup=markups)
+                sessions.clear(usertype, message.from_user.id)
 
 
             #  - ADMIN
@@ -286,6 +311,11 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             else:
                                 status = True
                                 database.change_data('services', 'name', message.text, service['name'], 'name')
+
+                                # --------------------------------------------------- #
+                                # RENAME DIRECTORY WITH DOMAIN AND INITIALIZE CONFIGS #
+                                # --------------------------------------------------- #
+
                                 bot.edit_message_text(
                                     chat_id=message.chat.id, message_id=edit, parse_mode='markdown',
                                     text=texts.success('updated-data', 'service-title',
@@ -325,6 +355,157 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                               disable_web_page_preview=True)
                     except ApiTelegramException:
                         pass
+
+            # Display | Menu | Subscriptions
+            if message.text == '🛍 Подписки' and not abuse:
+                bot.send_message(message.from_user.id, texts.menu('admin', 'subscriptions'),
+                                 parse_mode='markdown',
+                                 reply_markup=buttons.menu('admin', 'subscriptions'))
+
+            # Display | Subscriptions | Demo
+            if message.text == 'Пробная' and not abuse:
+                bot.send_message(
+                    message.from_user.id, texts.control('admin', 'subscription', subscription='demo'),
+                    parse_mode='markdown', reply_markup=buttons.control('admin', 'subscription', subscription='demo'))
+
+            # Display | Subscriptions | Week
+            if message.text == 'Недельная' and not abuse:
+                bot.send_message(
+                    message.from_user.id, texts.control('admin', 'subscription', subscription='week'),
+                    parse_mode='markdown', reply_markup=buttons.control('admin', 'subscription', subscription='week'))
+
+            # Display | Subscriptions | Month
+            if message.text == 'Месячная' and not abuse:
+                bot.send_message(
+                    message.from_user.id, texts.control('admin', 'subscription', subscription='month'),
+                    parse_mode='markdown', reply_markup=buttons.control('admin', 'subscription', subscription='month'))
+
+            # Handling | Change | Subscription price and expiration
+            if message.from_user.id in sessions.admins \
+                    and sessions.admins[message.from_user.id]['type'] == 'update-subscription-data':
+                if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
+                    print(message.text)
+                    print(sessions.admins[message.from_user.id])
+
+            # Display | Menu | Project
+            if message.text == '⭐️ Проект' and not abuse:
+                bot.send_message(message.from_user.id, texts.menu('admin', 'project'),
+                                 parse_mode='markdown',
+                                 reply_markup=buttons.menu('admin', 'project'))
+
+            # Display | Project | Logs
+            if message.text == '🗞 Логи' and not abuse:
+                logs = database.get_data('logs')
+                data = False if len(logs) == 0 else texts.show('logs', array=logs)
+                data = handler.paginator(data, 'logs') if data else ("- Логов ещё нет 🤷🏻‍♂", '')
+                bot.send_message(message.chat.id, f"*Логи*\n\n{data[0]}",
+                                 parse_mode='markdown', reply_markup=data[1])
+
+            # Display | Project | Messaging
+            if message.text == '📨 Рассылка' and not abuse:
+                bot.send_message(message.chat.id, texts.menu('admin', 'messaging'), parse_mode='markdown',
+                                 reply_markup=buttons.menu('admin', 'messaging'))
+
+            # Action | Send message | All
+            if message.text == '👥 Всем':
+                sessions.start(message.from_user.id, 'admin', 'send-message', message.message_id)
+                sessions.admins[message.from_user.id]['actions']['data']['mode'] = 'all'
+                sessions.admins[message.from_user.id]['actions']['step'] += 1
+
+                delete = bot.send_message(
+                    message.from_user.id, texts.processes('admin', 'send-message', 'all', 1),
+                    parse_mode='markdown', reply_markup=buttons.cancel_reply('формировку сообщения'))
+
+                sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+            # Action | Send Message | Individual
+            if message.text == '👤 Одному' and not abuse:
+                sessions.start(message.from_user.id, 'admin', 'send-message', message.message_id)
+                sessions.admins[message.from_user.id]['actions']['data']['mode'] = 'individual'
+                sessions.admins[message.from_user.id]['actions']['step'] += 1
+
+                delete = bot.send_message(
+                    message.from_user.id, texts.processes('admin', 'send-message', 'individual', 1),
+                    parse_mode='markdown', reply_markup=buttons.cancel_reply('формировку сообщения'))
+
+                sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+            # Handling | Send message
+            if message.from_user.id in sessions.admins \
+                    and sessions.admins[message.from_user.id]['type'] == 'send-message':
+                if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
+                    text, markups = str(), str()
+                    mode = sessions.admins[message.from_user.id]['actions']['data']['mode']
+                    step = sessions.admins[message.from_user.id]['actions']['step']
+                    delete = sessions.admins[message.from_user.id]['message']['delete']
+                    bot.delete_message(message.chat.id, message.id)
+
+                    match step:
+                        case 1:
+                            if mode == 'all':
+                                sessions.admins[message.from_user.id]['actions']['step'] += 1
+                                sessions.admins[message.from_user.id]['actions']['data']['message'] = message.text
+
+                                text = texts.processes('admin', 'send-message', mode, step + 1, text=message.text)
+                                markups = buttons.control('admin', 'send-message', type=mode, step=step)
+
+                            elif mode == 'individual':
+                                try:
+                                    identifier = int(message.text)
+                                    user = database.get_data_by_value('users', 'id', identifier)
+
+                                    if len(user) != 0:
+                                        sessions.admins[message.from_user.id]['actions']['step'] += 1
+                                        sessions.admins[message.from_user.id]['user']['id'] = identifier
+
+                                        text = texts.processes('admin', 'send-message', mode,
+                                                               step + 1, id=identifier)
+                                        markups = buttons.comeback_inline(f'to-messaging-{mode}-{step}')
+
+                                    else:
+                                        text = texts.error('not-exist', 'user', id=identifier)
+                                        markups = buttons.cancel_reply('формировку сообщения')
+
+                                except ValueError:
+                                    text = texts.error('not-numeric')
+                                    markups = buttons.cancel_reply('формировку сообщения')
+
+                            bot.delete_message(message.chat.id, delete)
+
+                        case 2:
+                            if mode == 'all':
+                                pass
+                            elif mode == 'individual':
+                                sessions.admins[message.from_user.id]['actions']['step'] += 1
+                                sessions.admins[message.from_user.id]['actions']['data']['message'] = message.text
+                                identifier = sessions.admins[message.from_user.id]['user']['id']
+
+                                text = texts.processes('admin', 'send-message', mode, step + 1,
+                                                       id=identifier, text=message.text)
+                                markups = buttons.control('admin', 'send-message', type=mode, step=step)
+
+                            bot.delete_message(message.chat.id, delete)
+
+                    try:
+                        delete = bot.send_message(message.chat.id, text=text,
+                                                  parse_mode='markdown', reply_markup=markups)
+                    except ApiTelegramException:
+                        delete = bot.send_message(message.chat.id, text='error', parse_mode='markdown')
+                    sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+            # Display | Project | Messaging
+            if message.text == '⚙️ Настройки' and not abuse:
+                bot.send_message(message.chat.id, texts.menu('admin', 'settings'), parse_mode='markdown',
+                                 reply_markup=buttons.menu('admin', 'settings'))
+
+            # Action | Change settings | Currencies
+            elif message.text == '🪙 Валюта' and not abuse:
+                pass
+
+            # Action | Change settings | Percentage
+            elif message.text == '🧮 Процент' and not abuse:
+                pass
+
             # - USER
 
     @bot.callback_query_handler(func=lambda call: True)
@@ -386,6 +567,34 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                 elif 'select-services-admin' in call.data:
                     text = texts.control('admin', 'services', step=1)
                     markups = buttons.control('admin', 'services', step=1)
+
+                elif 'to-messaging':
+                    mode, step = queries[-2], int(queries[-1])
+
+                    try:
+                        sessions.admins[call.from_user.id]['actions']['step'] -= 1
+
+                        match mode:
+                            case 'all':
+                                if step == 1:
+                                    sessions.admins[call.from_user.id]['actions']['data']['message'] = None
+                                    text = texts.processes('admin', 'send-message', mode, step)
+                                    markups = buttons.cancel_reply('формировку сообщения')
+
+                            case 'individual':
+                                if step == 1:
+                                    sessions.admins[call.from_user.id]['user']['id'] = None
+                                    text = texts.processes('admin', 'send-message', mode, step)
+                                    markups = buttons.cancel_reply('формировку сообщения')
+
+                                if step == 2:
+                                    identifier = sessions.admins[call.from_user.id]['user']['id']
+                                    sessions.admins[call.from_user.id]['actions']['data']['message'] = None
+                                    text = texts.processes('admin', 'send-message', mode, step, id=identifier)
+
+                    except KeyError:
+                        text = texts.processes('admin', 'messaging')
+                        markups = buttons.menu('admin', 'messaging')
 
                 try:
                     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
@@ -479,11 +688,14 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     text = texts.control(queries[1], mode, id=user)
                     markups = buttons.control(queries[1], mode, id=user)
 
+                elif queries[1] == 'subscription':
+                    mode, subscription = queries[-1], queries[2]
+
                 bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
                                       text=text, reply_markup=markups, parse_mode='markdown')
 
             case 'update':
-                text, markups = str(), str()
+                edit, text, markups = True, str(), str()
                 if queries[2] == 'user':
                     mode, option, user = queries[1], queries[-1], int(queries[3])
 
@@ -505,13 +717,29 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     text = texts.processes('admin', mode, option, service=service)
                     markups = buttons.cancel_inline(mode, service)
 
-                try:
-                    bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
-                                          text=text, parse_mode='markdown', reply_markup=markups,
-                                          disable_web_page_preview=True)
+                elif queries[1] == 'subscription':
+                    edit = False
+                    mode, option, subscription = 'update-subscription-data', queries[-1], queries[2]
 
-                except ApiTelegramException:
-                    bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+                    sessions.start(call.from_user.id, 'admin', 'update-subscription-data', call.message.id)
+                    sessions.admins[call.from_user.id]['actions']['data']['subscription'] = subscription
+                    sessions.admins[call.from_user.id]['actions']['data']['option'] = option
+
+                    text = texts.processes('admin', mode, option, subscription=subscription)
+                    markups = buttons.cancel_reply(f"изменение {'цены' if option == 'price' else 'срока'}")
+
+                if edit:
+                    try:
+                        bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
+                                              text=text, parse_mode='markdown', reply_markup=markups,
+                                              disable_web_page_preview=True)
+
+                    except ApiTelegramException:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+                else:
+                    bot.delete_message(call.from_user.id, call.message.id)
+                    delete = bot.send_message(call.from_user.id, text, parse_mode='markdown', reply_markup=markups)
+                    sessions.admins[call.from_user.id]['message']['delete'] = delete.id
 
             case 'set':
                 text, markups, answer_success, answer_error = str(), str(), str(), str()
@@ -580,6 +808,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                "🔽 Управление данными 🔽"
                         markups = buttons.menu('admin', 'service', markups_type='inline', array=service)
 
+                        sessions.clear(handler.recognition('usertype', user=call.from_user.id), call.from_user.id)
                         database.add_data(
                             'logs', user=admin['id'], username=admin['name'], usertype=usertype,
                             action=texts.logs('admin', 'service', 'status', array=service)
@@ -631,14 +860,56 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                 bot.send_message(call.message.chat.id, f'*{title}*\n\n{data[0]}',
                                  parse_mode='markdown', reply_markup=data[1])
 
+            case 'send':
+                if queries[1] == 'message':
+                    try:
+                        user = sessions.admins[call.from_user.id]['user']['id']
+                        mode = sessions.admins[call.from_user.id]['actions']['data']['mode']
+                        message = sessions.admins[call.from_user.id]['actions']['data']['message']
+
+                        answer = "✅ Принято на отправку"
+                        text = f"✅ Сообщение было принято на отправку и в ближайше время будет доставлено " \
+                               f"{'получателям' if mode == 'all' else 'получателю'}."
+
+                        processes = handler.file('read', 'processes')
+                        match mode:
+                            case 'all':
+                                processes['messages'][mode][call.from_user.id] = {'text': message}
+                            case 'individual':
+                                if user not in processes['messages'][mode].keys():
+                                    processes['messages'][mode][user] = {'text': message}
+                                else:
+                                    answer = "❎ Уже доставляется сообщение"
+                                    text = "❎ Сообщение не может быть доставлено, так как в данный момент уже " \
+                                           "производится отправка сообщения данному пользователю. Попробуй позже."
+                                    bot.delete_message(call.message.chat.id, call.message.message_id)
+
+                        handler.file('write', 'processes', processes)
+                        bot.answer_callback_query(callback_query_id=call.id, text=answer)
+                        sessions.clear(handler.recognition('usertype', user=call.from_user.id), call.from_user.id)
+
+                        bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
+                                              text=text, parse_mode='markdown')
+
+                        time.sleep(1)
+                        bot.send_message(call.from_user.id, texts.menu('admin', 'messaging'),
+                                         parse_mode='markdown',
+                                         reply_markup=buttons.menu('admin', 'messaging'))
+
+                    except KeyError:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+                        bot.delete_message(call.message.chat.id, call.message.message_id)
+
     # -------------
     try:
         bot.infinity_polling()
     except Exception as error:
-        path, file = 'data/logs/', f"log-{datetime.now().strftime('%d.%m.%Y-%H:%M:%S')}.txt"
+        path, file = 'sources/logs/', f"log-{datetime.now().strftime('%d.%m.%Y-%H:%M:%S')}.txt"
 
         logging.basicConfig(filename=f"{path}{file}", level=logging.ERROR)
         logging.error(error, exc_info=True)
 
         bot.send_message(configs['chats']['notifications'], texts.notifications('bot-crashed', path=path, file=file),
                          parse_mode='markdown')
+
+        sys.exit()

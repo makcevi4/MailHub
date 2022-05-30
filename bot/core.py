@@ -182,7 +182,7 @@ class Database:
                     `mail` JSON NOT NULL
                     )"""
 
-            controller.execute(query)
+            controller.execute(f'{query} CHARACTER SET = utf8mb4 COLLATE = utf8mb4_unicode_ci')
             connection.commit()
             self.close(connection, controller)
             return True
@@ -407,24 +407,124 @@ class Sessions:
 
 
 class Processes:
-    def __init__(self, bot, texts, buttons):
+    def __init__(self, configs, database, handler, bot, texts, buttons):
+        self.configs = configs
+        self.database = database
+        self.handler = handler
         self.bot = bot
         self.texts = texts
         self.buttons = buttons
 
+    def send_message(self, userid, text):
+        try:
+            self.bot.send_message(userid, text, parse_mode='markdown')
+            return True
+        except ApiTelegramException as error:
+            return error.error_code
+
+    def messagings(self):
+        processes = self.handler.file('read', 'processes')
+        status, cause = False, None
+
+        for message_type in processes['messages']:
+            if len(processes['messages'][message_type].keys()) > 0:
+                if message_type == 'all':
+                    for key in list(processes['messages'][message_type].keys()):
+                        sent, unsent, blocked, deleted = 0, 0, 0, 0
+                        users = self.handler.format('list', 'users', 'ids-without-banned')
+                        text = processes['messages'][message_type][key]['text']
+
+                        for user in users:
+                            status = self.send_message(user, text)
+
+                            if type(status) is bool:
+                                if status:
+                                    sent += 1
+                            else:
+                                unsent += 1
+
+                                match status:
+                                    case 403:
+                                        blocked += 1
+                                    case 400:
+                                        if self.database.delete_data('users', 'id', user):
+                                            deleted += 1
+
+                        unsent += len(self.database.get_data('users')) - sent
+                        admin = self.database.get_data_by_value('users', 'id', key)[0]
+                        log = self.texts.logs('admin', 'messaging', message_type, sent=sent,
+                                              unsent=unsent, blocked=blocked, deleted=deleted)
+
+                        self.database.add_data(
+                            'logs', id=self.handler.generate('unique-id'), user=admin['id'], username=admin['name'],
+                            usertype=list(self.configs['users'].keys())[0], action=log)
+
+                        self.bot.send_message(
+                            self.configs['chats']['notifications'],
+                            self.texts.notifications('group', 'messaging', id=admin['id'], name=admin['name'],
+                                                     sent=sent, unsent=unsent, blocked=blocked, deleted=deleted),
+                            parse_mode='markdown')
+
+                        del processes['messages'][message_type][key]
+
+                    self.handler.file('write', 'processes', processes)
+
+                else:
+                    if len(processes['messages'][message_type].keys()) > 0:
+                        for user, data in list(processes['messages'][message_type].items()):
+                            try:
+                                user = self.database.get_data_by_value('users', 'id', user)[0]
+                            except IndexError:
+                                user = {'id': user, 'name': 'Неизвестно'}
+
+                            if 'ban' in user.keys() and not user['ban']:
+                                status = self.send_message(user['id'], data['text'])
+
+                            if type(status) is bool and not status:
+                                cause = "Пользователь ранее был заблокирован"
+                            else:
+                                match status:
+                                    case 403:
+                                        cause = "Пользователь заблокировал бота " \
+                                                "(был автоматически заблокирован в ответ)"
+
+                                    case 400:
+                                        if self.database.delete_data('users', 'id', user['id']):
+                                            cause = "Пользователю не может быть отправлено сообщение, " \
+                                                    "скорее всего некорректный ID. " \
+                                                    "Пользователь удалён с базы данных."
+
+                            text_status = '🟢 Доставлено' if type(status) is bool and status else '🔴 Не доставлено'
+                            text_cause = '' if type(status) is bool and status else f'⚠️ Причина: {cause}'
+
+                            log = self.texts.logs('admin', 'messaging', message_type, user=user,
+                                                  status=text_status, cause=text_cause)
+
+                            self.database.add_data(
+                                'logs', id=self.handler.generate('unique-id'), user=user['id'], username=user['name'],
+                                usertype=list(self.configs['users'].keys())[0], action=log)
+
+                            del processes['messages'][message_type][str(user['id'])]
+
+                        self.handler.file('write', 'processes', processes)
+
     def payments(self):
         pass
 
-    def mailing(self):
+    def mailings(self):
         pass
 
     def run(self):
+        schedule.every(1).seconds.do(
+            self.mailings
+        )
+
         schedule.every(1).seconds.do(
             self.payments
         )
 
         schedule.every(1).seconds.do(
-            self.mailing
+            self.messagings
         )
 
         while True:
@@ -493,11 +593,8 @@ class Handler:
         filepath = str()
         buffering = action[0] if action == 'read' or action == 'write' else 'r'
 
-        match file:
-            case 'processings':
-                filepath += 'sources/data/processings.json'
-            case 'settings':
-                filepath += 'sources/data/settings.json'
+        if file == 'processes' or file == 'settings':
+            filepath += f'sources/data/{file}.json'
 
         with open(filepath, buffering, encoding='utf-8') as file:
             match action:
@@ -573,7 +670,10 @@ class Handler:
                         if value == 'ids':
                             for user in users:
                                 result.append(user['id'])
-
+                        elif value == 'ids-without-banned':
+                            for user in users:
+                                if not user['ban']:
+                                    result.append(user['id'])
                     case 'services':
                         services = self.database.get_data('services')
 
@@ -678,7 +778,10 @@ class Handler:
                 actions = [
                     '👨🏻‍💻 Пользователи', '👁 Посмотреть всех', '🕹 Управлять',
                     '🛠 Сервисы', '➕ Добавить', '⚙️ Управлять',
-                    '⭐️ Проект'
+                    '🛍 Подписки', 'Пробная', 'Недельная', 'Месячная'
+                    '⭐️ Проект', '🗞 Логи',
+                    '📨 Рассылка', '👥 Всем', '👤 Одному',
+                    '⚙️ Настройки', '🪙 Валюта', '🧮 Процент'
                 ]
 
                 if action in actions:
@@ -729,22 +832,11 @@ class Texts:
                         prices = settings['prices']
                         currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
 
-                        demo = self.handler.format('dict', 'currencies-convert', summary=prices['demo'])
-                        week = self.handler.format('dict', 'currencies-convert', summary=prices['week'])
-                        month = self.handler.format('dict', 'currencies-convert', summary=prices['month'])
-
                         text = "*АДМИН-ПАНЕЛЬ*\n\n" \
                                f"✏️ Логов: *{len(self.database.get_data('logs'))}*\n" \
                                f"👥 Пользователей: *{len(self.database.get_data('users'))}*\n" \
                                f"📨 Рассылок: *{len(self.database.get_data('mailings'))}*\n" \
                                f"⭐️ Подписок: *{len(self.database.get_data('subscriptions'))}*\n\n" \
-                               f"*Цены на подписки*\n" \
-                               f" - Пробная: " \
-                               f"*{demo[currency]} {currency} ({demo[cryptocurrency]} {cryptocurrency})*\n" \
-                               f" - Недельная: " \
-                               f"*{week[currency]} {currency} ({week[cryptocurrency]} {cryptocurrency})*\n" \
-                               f" - Месячная: " \
-                               f"*{month[currency]} {currency} ({month[cryptocurrency]} {cryptocurrency})*\n\n" \
                                f"🔽 Выбери действие 🔽"
 
                     case 'users':
@@ -762,6 +854,44 @@ class Texts:
                             text += "2️⃣ Управление сервисом и его данными\n"
 
                         text += "\n🔽 Выбери действие 🔽"
+
+                    case 'subscriptions':
+                        settings = self.handler.file('read', 'settings')
+                        prices = settings['prices']
+                        currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
+
+                        text += "*Подписки*\n\n" \
+                                "*Подписки и цены*\n"
+
+                        for subscription, subscription_data in self.configs['subscriptions']['types'].items():
+                            subscription_prices = self.handler.format(
+                                'dict', 'currencies-convert', summary=prices[subscription])
+                            text += f" - {subscription_data['title'].capitalize()}: " \
+                                    f"*{subscription_prices[currency]} {currency} " \
+                                    f"({subscription_prices[cryptocurrency]} {cryptocurrency})*\n"
+
+                        text += "\n🔽 Выбери подписку 🔽"
+
+                    case 'project':
+                        text += "*Проект*\n\n" \
+                                "📍 Доступные действия:\n" \
+                                "1️⃣ Просмотр логов\n" \
+                                "2️⃣ Рассылка сообщений пользователям\n\n" \
+                                "🔽 Выбери действие 🔽"
+
+                    case 'messaging':
+                        text += "*Рассылка сообщений*\n\n" \
+                                "📍 Доступна рассылка:\n" \
+                                "1️⃣ Всем пользователям\n" \
+                                "2️⃣ Определённому пользователю\n\n" \
+                                "🔽 Выбери действие 🔽"
+
+                    case 'settings':
+                        text += "*Настройки*\n\n" \
+                                "📍 Доступные изменения:\n" \
+                                "1️⃣ Валюты или криптовалюты\n" \
+                                "2️⃣ Общего реферального процента\n\n" \
+                                "🔽 Выбери действие 🔽"
 
             case 'user':
                 userdata = self.database.get_data_by_value('users', 'id', data['user'])[0]
@@ -992,9 +1122,32 @@ class Texts:
                         text = "*Управление сервисами*\n\n" \
                                f"📌 Всего сервисов: *{len(services)}*\n\n" \
                                "*Сервисы*\n"
-                        for service in services:
-                            text += f"{'🟢' if service['status'] == 'active' else '🔴'} {service['name']}\n"
-                        text += "\n🔽 Выбери сервис 🔽"
+                        if len(services) > 0:
+                            for service in services:
+                                text += f"{'🟢' if service['status'] == 'active' else '🔴'} {service['name']}\n"
+                            text += "\n🔽 Выбери сервис 🔽"
+                        else:
+                            text += " - Сервисов ещё нет 🤷🏻‍♂️"
+
+                    case 'subscription':
+
+                        settings = self.handler.file('read', 'settings')
+                        currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
+                        subscription = self.configs['subscriptions']['types'][data['subscription']]
+                        price = settings['prices'][data['subscription']]
+                        subscription_prices = self.handler.format('dict', 'currencies-convert', summary=price)
+
+                        text = "*Управление подпиской*\n\n" \
+                               f"📍 Название: *{subscription['title'].capitalize()}*\n" \
+                               f"🗓 Срок: *{subscription['duration']} " \
+                               f"{'ч.' if subscription['type'] == 'hour' else 'дн.'}*\n" \
+                               f"💰 Цена: *{subscription_prices[currency]} {currency} " \
+                               f"({subscription_prices[cryptocurrency]} {cryptocurrency})*\n\n" \
+                               "📌 Доступные действия:\n" \
+                               "1️⃣ Измененять цену подписки\n" \
+                               "2️⃣ Изменить срок действия\n" \
+                               "3️⃣ Посмотреть пользователей купивших подписку\n\n"
+
 
         return text
 
@@ -1042,17 +1195,87 @@ class Texts:
                         case 'title':
                             text += "*Изменение названия*\n\n" \
                                     f"📍 Текущее название: *{service['name']}*\n\n" \
-                                    f"📌 Для того, чтобы изменить название сервиса, введи новое, " \
-                                    f"на которое хочешь заменить. В противном случае отмени действие.\n\n" \
-                                    f"🔽 Введи название 🔽"
+                                    "📌 Для того, чтобы изменить название сервиса, введи новое, " \
+                                    "на которое хочешь заменить. В противном случае отмени действие.\n\n" \
+                                    "🔽 Введи название 🔽"
 
                         case 'domain':
                             text += "*Изменение домена*\n\n" \
                                     f"📍 Текущий домен: {service['domain']}\n\n" \
-                                    f"📌 Для того, чтобы изменить домен сервиса, введи новый, " \
-                                    f"на который хочешь заменить. В противном случае отмени действие.\n\n" \
-                                    f"🔽 Введи домен 🔽"
+                                    "📌 Для того, чтобы изменить домен сервиса, введи новый, " \
+                                    "на который хочешь заменить. В противном случае отмени действие.\n\n" \
+                                    "🔽 Введи домен 🔽"
 
+                elif mode == 'send-message':
+                    steps = 0
+                    recipient, message, action = None, "*Не установлен*", str()
+
+                    match option:
+                        case 'all':
+                            steps = 2
+                            recipient = "*Всем пользователям*"
+
+                            match step:
+                                case 1:
+                                    action = "📌 Введи текст сообщения, который хочешь отправить пользователям"
+
+                                case 2:
+                                    message = f"{data['text']}"
+
+                        case 'individual':
+                            steps = 3
+
+                            match step:
+                                case 1:
+                                    recipient = "*Пользователю*"
+                                    action = "📌 Введи ID пользователя, которому хочешь отправить сообщениею. " \
+                                             "В противном случае отмени действие."
+                                case 2:
+                                    user = self.database.get_data_by_value('users', 'id', data['id'])[0]
+                                    recipient = f"[{user['name']}](tg://user?id={user['id']})"
+                                    action = "📌 Введи текст сообщения, который хочешь отправить пользователю. " \
+                                             "В противном случае отмени действие."
+                                case 3:
+                                    user = self.database.get_data_by_value('users', 'id', data['id'])[0]
+                                    recipient = f"[{user['name']}](tg://user?id={user['id']})"
+                                    message = f"{data['text']}"
+
+                    text = f"*Отправка сообщения ({step}/{steps})*\n\n" \
+                           f"👤 Кому: {recipient}\n" \
+                           f"💬 Текст: {message}\n\n" \
+                           f"{action}"
+
+                elif mode == 'update-subscription-data':
+                    additional, values = None, {'first': None, 'second': None, 'third': None}
+                    settings = self.handler.file('read', 'settings')
+                    option, subscription = option, self.configs['subscriptions']['types'][data['subscription']]
+                    price, currency = settings['prices'][data['subscription']], settings['main']['currency']
+                    subscription_prices = self.handler.format('dict', 'currencies-convert', summary=price)
+
+                    match option:
+                        case 'price':
+                            values['first'] = 'цены'
+                            values['second'] = 'цена'
+                            additional = 'текущую цену на подписку, введи число не равное текущему и не менее, чем 0.'
+
+                        case 'expiration':
+                            values['first'] = 'продолжительности'
+                            values['second'] = 'продолжительность'
+                            additional = 'текущую продолжительность подписки, введи числовое значение ' \
+                                         'не равное текущему и не менее 0.'
+
+                    text = f"*Изменение {values['first']}*\n\n" \
+                           f"⭐️ Подписка: *{subscription['title'].capitalize()}*\n" \
+                           f"📍 Текущ{'ая' if option == 'price' else 'ая'} {values['second']}: " \
+                           f"*{subscription_prices[currency]} {currency}*\n\n" \
+                           f"📌 Для того, чтобы изменить {additional}\n\n" \
+                           "🔽 Введи данные 🔽"
+
+                elif mode == 'currencies':
+                    pass
+
+                elif mode == 'percentage':
+                    pass
 
             case 'user':
                 match mode:
@@ -1068,6 +1291,58 @@ class Texts:
                                    "В противном  случае отмени действие.\n\n" \
                                    "🔽 Введи значение 🔽"
 
+        return text
+
+    def notifications(self, mode, option=None, **data):
+        text = str()
+
+        match mode:
+            case 'bot-crashed':
+                text += "⚠️ *Внимание* ⚠️\n\n" \
+                        "🔔 Бот был экстренно остановлен в связи с возникшей ошибкой, данные об ошибке " \
+                        "записаны на сервере.\n\n" \
+                        f"📁 Путь: `{data['path']}`\n" \
+                        f"📄 Файл: `{data['file']}`"
+
+            case 'deposit-expired':
+                text += "⚠️ *Внимание* ⚠️\n\n" \
+                        f"🔔 Твой платёж с уникальным ID `{data['id']}` автоматически завершён. " \
+                        f"Чтобы создать ещё один платёж на пополнение баланса, " \
+                        f"перейди в раздел *«Баланс»* и нажми *«Депозит»*."
+
+            case 'deposit-closed':
+                text += "Платёж отклонён\n\n" \
+                        f"🔔 Твой платёж успешно отклонен"
+
+            case 'group':
+                match option:
+                    case 'abuse-admin':
+                        text += "⚠️ *Абьюз бота* ⚠️\n\n" \
+                                f"🔔 Пользователь [{data['name']}](tg://user?id={data['id']}) | ID:{data['id']} " \
+                                "попытался запустить админ-панель, но у него нет на это доступа, поэтому он был " \
+                                "автоматически забанен."
+
+                    case 'abuse-action':
+                        text += "⚠️ *Абьюз бота* ⚠️\n\n" \
+                                f"🔔 Пользователь [{data['name']}](tg://user?id={data['id']}) | ID:{data['id']} " \
+                                f"попытался воспользоваться командой «{data['action']}», но не смог. " \
+                                "Скорее этот человек пытается абьюзить бота или ищет дырки, " \
+                                "поэтому он был автоматически забанен."
+
+                    case 'add-funds':
+                        currency = self.handler.file('read', 'settings')['main']['currency']
+                        text += "💸 *Новое пополнение* 💸\n\n" \
+                                f"🔔 Пользователь [{data['name']}](tg://user?id={data['id']}) | ID:{data['id']} " \
+                                f"успешно пополнил совй баланс на *{data['summary']} {currency}*."
+
+                    case 'messaging':
+                        text += "📥 *Результаты рассылки* 📤\n\n" \
+                                f"🔔 Администратор [{data['name']}](tg://user?id={data['id']}) произвёл рассылку.\n\n" \
+                                "*Результаты*\n" \
+                                f"🟢 Отправлено: *{data['sent']}*\n" \
+                                f"🔴 Не отправлено: *{data['unsent']}*\n" \
+                                f"🚫 Забанено: *{data['blocked']}*\n" \
+                                f"⛔️ Удалено: *{data['deleted']}*"
         return text
 
     def logs(self, mode, option=None, value=None, **data):
@@ -1091,7 +1366,21 @@ class Texts:
                             service = data['array']
                             text = f"{'Включил' if service['status'] == 'active' else 'Выключил'} сервис " \
                                    f"{service['name']}."
+                    case 'messaging':
+                        if value == 'all':
+                            text += f"Произвёл общую рассылку всем пользователям.\n\n" \
+                                    f"*Результаты рассылки*\n" \
+                                    f"🟢 Отправлено: *{data['sent']}*\n" \
+                                    f"🔴 Не отправлено: *{data['unsent']}*\n" \
+                                    f"🚫 Забанено: *{data['blocked']}*\n" \
+                                    f"⛔️ Удалено: *{data['deleted']}*"
 
+                        elif value == 'individual':
+                            text += f"Произведена автоматическая рассылка пользователю " \
+                                    f"[{data['user']['name']}](tg://user?id={data['user']['id']}) | " \
+                                    f"ID: `{data['user']['id']}`.\n" \
+                                    f"⚙️ Статус: *{data['status']}*\n" \
+                                    f"{data['cause']}"
 
         return text
 
@@ -1135,7 +1424,10 @@ class Texts:
 
             case 'less':
                 text += "Значение должно быть *не менее 1*. Попробуй ещё раз или же отмени действие."
-
+            case 'not-exist':
+                match option:
+                    case 'user':
+                        text += f"Пользователь с идентификатором {data['id']} не найден."
             case 'not-found':
                 value = None
 
@@ -1245,6 +1537,7 @@ class Buttons:
                         markup.add(
                             types.KeyboardButton('👨🏻‍💻 Пользователи'),
                             types.KeyboardButton('🛠 Сервисы'),
+                            types.KeyboardButton('🛍 Подписки'),
                             types.KeyboardButton('⭐️ Проект')
                         )
 
@@ -1255,9 +1548,10 @@ class Buttons:
                         )
 
                     case 'user':
+                        markup, markups, row, additional = dict(), list(), list(), dict()
                         comeback = False
                         user = data['id']
-                        markup, markups, row, additional = dict(), list(), list(), dict()
+                        row = list()
 
                         items = {
                             '⛔️ Блокировка': {'type': 'control', 'action': 'ban'},
@@ -1285,7 +1579,8 @@ class Buttons:
                                     'text': name,
                                     'callback_data': f'{values["type"]}-user-{user}-{values["action"]}'
                                 })
-                                if values["action"] == 'ban':
+
+                                if values['action'] == 'ban':
                                     markups.append(row)
                                     row = list()
 
@@ -1295,9 +1590,6 @@ class Buttons:
                         else:
                             if len(row) != 0:
                                 markups.append(row)
-
-                        markup['inline_keyboard'] = markups
-                        markup = str(markup).replace('\'', '"')
 
                     case 'services':
                         markup.add(
@@ -1339,6 +1631,45 @@ class Buttons:
                         markup['inline_keyboard'] = markups
                         markup = str(markup).replace('\'', '"')
 
+                    case 'subscriptions':
+                        row = list()
+
+                        for subscription in self.configs['subscriptions']['types'].values():
+                            if len(row) < width:
+                                row.append(subscription['title'].capitalize())
+
+                                if subscription['title'] == 'пробная':
+                                    markup.keyboard.append(row)
+                                    row = list()
+
+                            if len(row) == width:
+                                markup.keyboard.append(row)
+                                row = list()
+                        else:
+                            if len(row) != 0:
+                                markup.keyboard.append(row)
+
+                    case 'project':
+                        markup.add(
+                            types.KeyboardButton('🗞 Логи'),
+                            types.KeyboardButton('📨 Рассылка'),
+                            types.KeyboardButton('⚙️ Настройки')
+                        )
+                        print(markup)
+
+                    case 'messaging':
+                        comeback = 'проекту'
+                        markup.add(
+                            types.KeyboardButton("👥 Всем"),
+                            types.KeyboardButton("👤 Одному")
+                        )
+
+                    case 'settings':
+                        comeback = 'проекту'
+                        markup.add(
+                            types.KeyboardButton("🪙 Валюта"),
+                            types.KeyboardButton("🧮 Процент")
+                        )
             case 'user':
                 match menu:
                     case 'main':
@@ -1424,6 +1755,26 @@ class Buttons:
                                 markup['inline_keyboard'] = markups
                                 markup = str(markup).replace('\'', '"')
 
+                    case 'subscription':
+                        markup.add(
+                            types.InlineKeyboardButton(
+                                "💰 Цена", callback_data=f"update-subscription-{data['subscription']}-price"),
+                            types.InlineKeyboardButton(
+                                "🗓 Срок", callback_data=f"update-subscription-{data['subscription']}-expiration")
+                        )
+                        markup.add(types.InlineKeyboardButton(
+                            "👥 Пользователи", callback_data=f"control-subscription-{data['subscription']}-users"))
+
+                    case 'percentages':
+                        pass
+
+                    case 'send-message':
+                        markup.add(
+                            types.InlineKeyboardButton("📩 Отправить", callback_data=f"send-message"))
+                        markup.add(
+                            types.InlineKeyboardButton(
+                                "↩️ Назад", callback_data=f"comeback-to-messaging-{data['type']}-{step}")
+                        )
         return markup
 
 
@@ -1442,3 +1793,15 @@ if __name__ == '__main__':
     #         'template': 'test.com/template'
     #     })
     # )
+
+    # i = 1
+    # while i < 15:
+    #     user = 1603149905 if random.randint(0, 1) else random.randint(111111111, 999999999)
+    #     _database.add_data('logs', user=user,
+    #                        username='Дипси' if user == 1603149905 else f'Пользователь-{user}',
+    #                        usertype='admin' if user == 1603149905 else 'user',
+    #                        action=f"Действие пользователя {user}"
+    #     )
+    #     i += 1
+
+

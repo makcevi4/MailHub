@@ -16,7 +16,7 @@ if __name__ == '__main__':
     buttons = Buttons(configs, database, handler)
 
     sessions = Sessions()
-    processes = Processes(bot, texts, buttons)
+    processes = Processes(configs, database, handler, bot, texts, buttons)
     merchant = Merchant(database, handler, texts)
     mailing = Mailing()
 

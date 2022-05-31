@@ -395,13 +395,14 @@ class Sessions:
             case 'user':
                 self.users[identifier] = template
 
-    def clear(self, usertype, user):
+    def clear(self, user):
         try:
-            match usertype:
-                case 'admin':
-                    del self.admins[user]
-                case 'user':
-                    del self.users[user]
+            del self.admins[user]
+        except KeyError:
+            pass
+
+        try:
+            del self.users[user]
         except KeyError:
             pass
 
@@ -1186,6 +1187,16 @@ class Texts:
 
                         text += "\n\n🔽 Выбери действие 🔽"
 
+                    case 'currencies':
+                        settings = self.handler.file('read', 'settings')['main']
+                        text += "*Изменение валюты*\n\n" \
+                                f"▫️ Текущая валюта: *{settings['currency']}*\n" \
+                                f"▪️ Текущая криптовалюта: *{settings['cryptocurrency']}*\n\n" \
+                                f"📌 Доступные действия:\n" \
+                                f"1️⃣ Изменить текущую валюту\n" \
+                                f"2️⃣ Изменить текущую криптовалюту\n\n" \
+                                f"🔽 Выбери действие 🔽"
+
         return text
 
     def processes(self, user, mode, option=None, step=0, **data):
@@ -1288,23 +1299,31 @@ class Texts:
                     price, currency = settings['prices'][data['subscription']], settings['main']['currency']
                     subscription_prices = self.handler.format('dict', 'currencies-convert', summary=price)
 
-                    text = f"*Изменение цены* \n\n" \
+                    text = "*Изменение цены* \n\n" \
                            f"⭐️ Подписка: *{subscription['title'].capitalize()}*\n" \
                            f"📍 Текущая цена: *{subscription_prices[currency]} {currency}*\n\n" \
-                           f"📌 Для того, чтобы изменить текущую цену на подписку, введи число не равное " \
-                           f"текущему и не менее 0.\n\n" \
+                           "📌 Для того, чтобы изменить текущую цену на подписку, введи число не равное " \
+                           "текущему и не менее 0.\n\n" \
                            f"⚠️ Цена должна быть указана исключительно в *{currency}*.\n\n" \
-                           f"🔽 Введи данные 🔽"
+                           "🔽 Введи данные 🔽"
 
+                elif mode == 'change-project-data':
+                    datatype = data['type']
 
+                    match datatype:
+                        case 'percentage':
+                            text = "*Изменение общего процента*\n\n" \
+                                   f"🧮 Текущий процент: " \
+                                   f"*{self.handler.file('read', 'settings')['main']['percentage']}*\n\n" \
+                                   "Для того, чтобы изменить общий реферальный процент, введи число не равное " \
+                                   "текущему проценту и не ниже 0. \n\n" \
+                                   "🔽 Введи данные 🔽"
 
+                        case 'currencies':
 
-
-                elif mode == 'currencies':
-                    pass
-
-                elif mode == 'percentage':
-                    pass
+                            text = f"*Изменение {'валюты' if option == 'currency' else 'криптовалюты'}*\n\n" \
+                                   f"Для того, чтобы изменить {'валюту' if option == 'currency' else 'криптовалюту'}," \
+                                   f" введи новую. В противном случае отмени дейтвие."
 
             case 'user':
                 match mode:
@@ -1452,7 +1471,8 @@ class Texts:
                         f"Попробуй ещё раз или же отмени действие."
 
             case 'less':
-                text += "Значение должно быть *не менее 1*. Попробуй ещё раз или же отмени действие."
+                text += f"Значение должно быть *не менее {data['value'] if 'value' in data.keys() else 1}*. " \
+                        f"Попробуй ещё раз или же отмени действие."
             case 'not-exist':
                 match option:
                     case 'user':
@@ -1494,6 +1514,17 @@ class Texts:
                     text += f"Домен сервиса успешно изменён с *{data['old']}* на *{data['new']}*"
                 elif option == 'subscription-price':
                     text += f"Цена подписки успешно изменена с *{data['old']}* на *{data['new']} {data['currency']}*"
+                elif 'project' in option:
+                    option = option.split('-')[-1]
+
+                    match option:
+                        case 'percentage':
+                            text += f"Общий реферальный процент успешно изменён с *{data['old']}*  на *{data['new']}*"
+                        case 'currency':
+                            text += f"Валюта успешно изменена с *{data['old']}*  на *{data['new']}*"
+                        case 'cryptocurrency':
+                            text += f"Криптовалюта успешно изменена с *{data['old']}*  на *{data['new']}*"
+
 
 
         return text
@@ -1807,8 +1838,16 @@ class Buttons:
                             markup.add(types.InlineKeyboardButton(
                                 "↩️ Назад", callback_data=f"comeback-{data['comeback']}"))
 
-                    case 'percentages':
-                        pass
+                    case 'currencies':
+                        markup.add(
+                            types.InlineKeyboardButton(
+                                "▫️ Валюта", callback_data='update-project-currency'),
+                            types.InlineKeyboardButton(
+                                "▪️ Криптовалюта", callback_data='update-project-cryptocurrency')
+                        )
+                        markup.add(
+                            types.InlineKeyboardButton("↩️ Назад", callback_data='comeback-to-project-settings')
+                        )
 
                     case 'send-message':
                         markup.add(

@@ -59,7 +59,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
             # Buttons handling | Comeback
             if '↩️ Назад к' in message.text:
-                sessions.clear(usertype, message.from_user.id)
+                sessions.clear(message.from_user.id)
 
                 if usertype == 'admin':
                     if 'админ панели' in message.text:
@@ -105,9 +105,12 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             text = texts.menu('admin', 'subscriptions')
                             markups = buttons.menu('admin', 'subscriptions')
 
-                bot.send_message(message.from_user.id, text, parse_mode='markdown', reply_markup=markups)
-                sessions.clear(usertype, message.from_user.id)
+                    elif 'изменение процента' in message.text:
+                        text = texts.menu('admin', 'settings')
+                        markups = buttons.menu('admin', 'settings')
 
+                bot.send_message(message.from_user.id, text, parse_mode='markdown', reply_markup=markups)
+                sessions.clear(message.from_user.id)
 
             #  - ADMIN
             abuse = handler.recognition('abuse', action=message.text, user=message.from_user.id, usertype=usertype,
@@ -348,7 +351,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                f"🔽 Управление данными 🔽"
                         markups = buttons.menu('admin', 'service', markups_type='inline', array=service)
                         time.sleep(1)
-                        sessions.clear(usertype, message.from_user.id)
+                        sessions.clear(message.from_user.id)
 
                     try:
                         bot.edit_message_text(chat_id=message.chat.id, message_id=edit,
@@ -385,7 +388,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
             if message.from_user.id in sessions.admins \
                     and sessions.admins[message.from_user.id]['type'] == 'update-subscription-price':
                 if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
-                    text, markups, status = str(), str(), False
+                    text, markups = str(), str()
                     data = sessions.admins[message.from_user.id]['actions']['data']
                     step = sessions.admins[message.from_user.id]['actions']['step']
                     delete = sessions.admins[message.from_user.id]['message']['delete']
@@ -403,13 +406,22 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                     markups = buttons.cancel_reply('изменение цены')
 
                                 else:
-                                    status = True
                                     settings = handler.file('read', 'settings')
                                     old = settings['prices'][data['subscription']]
                                     settings['prices'][data['subscription']] = value
                                     handler.file('write', 'settings', settings)
-                                    text = texts.success('updated-data', 'subscription-price', old=old, new=value,
-                                                         currency=settings['main']['currency'])
+                                    sessions.clear(message.from_user.id)
+
+                                    bot.send_message(
+                                        message.from_user.id,
+                                        texts.success('updated-data', 'subscription-price',
+                                                      old=old, new=value, currency=settings['main']['currency']),
+                                        parse_mode='markdown')
+
+                                    text = texts.control('admin', 'subscription', subscription=data['subscription'])
+                                    markups = buttons.control('admin', 'subscription', subscription=data['subscription'],
+                                                              comeback='to-subscriptions-control')
+                                    time.sleep(0.5)
 
                             except ValueError:
                                 option = 'цены' if data['option'] == 'price' else 'продолжительности'
@@ -418,17 +430,9 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                     bot.delete_message(message.chat.id, delete)
                     delete = bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
-                    sessions.admins[message.from_user.id]['message']['delete'] = delete.id
 
-                    if status:
-                        time.sleep(1)
-                        bot.send_message(
-                            message.from_user.id,
-                            texts.control('admin', 'subscription', subscription=data['subscription']),
-                            parse_mode='markdown',
-                            reply_markup=buttons.control('admin', 'subscription', subscription=data['subscription'],
-                                                         comeback='to-subscriptions-control'))
-
+                    if message.from_user.id in sessions.admins:
+                        sessions.admins[message.from_user.id]['message']['delete'] = delete.id
 
         # Display | Menu | Project
             if message.text == '⭐️ Проект' and not abuse:
@@ -543,11 +547,72 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
             # Action | Change settings | Currencies
             elif message.text == '🪙 Валюта' and not abuse:
-                pass
+                bot.send_message(
+                    message.chat.id, texts.control('admin', 'currencies'),
+                    parse_mode='markdown', reply_markup=buttons.control('admin', 'currencies'))
 
             # Action | Change settings | Percentage
             elif message.text == '🧮 Процент' and not abuse:
-                pass
+                sessions.start(message.from_user.id, 'admin', 'change-project-data', message.message_id)
+                sessions.admins[message.from_user.id]['actions']['data']['type'] = 'percentage'
+
+                delete = bot.send_message(
+                    message.chat.id, texts.processes('admin', 'change-project-data', type='percentage'),
+                    parse_mode='markdown', reply_markup=buttons.cancel_reply('изменение процента'))
+                sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+            # Handling | Change | Project percentage and currencies
+            if message.from_user.id in sessions.admins \
+                    and sessions.admins[message.from_user.id]['type'] == 'change-project-data':
+                if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
+                    option = sessions.admins[message.from_user.id]['actions']['data']['type']
+                    delete = sessions.admins[message.from_user.id]['message']['delete']
+                    text, markups, cancel = str(), str(), f"изменение {'процента' if option == 'percentage' else ''}"
+                    status = False
+
+                    bot.delete_message(message.chat.id, message.id)
+
+                    try:
+                        value = int(message.text)
+                        settings = handler.file('read', 'settings')
+                        current = settings['main'][option]
+
+                        if value == current:
+                            text = texts.error('same', value=value)
+                            markups = buttons.cancel_reply(cancel)
+
+                        elif value < 0:
+                            text = texts.error('less', value=0)
+                            markups = buttons.cancel_reply(cancel)
+                        else:
+                            match option:
+                                case 'currency' | 'cryptocurrency':
+                                    print('do')
+                                case 'percentage':
+                                    status = True
+
+                            if status:
+                                settings['main'][option] = value
+                                handler.file('write', 'settings', settings)
+                                bot.send_message(
+                                    message.from_user.id,
+                                    texts.success('updated-data', f'project-{option}', old=current, new=value),
+                                    parse_mode='markdown')
+
+                                text = texts.menu('admin', 'settings')
+                                markups = buttons.menu('admin', 'settings')
+                                sessions.clear(message.from_user.id)
+                                time.sleep(0.5)
+
+                    except ValueError:
+                        text = texts.error('not-numeric')
+                        markups = buttons.cancel_reply(cancel)
+
+                    bot.delete_message(message.chat.id, delete)
+                    delete = bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
+                    if message.from_user.id in sessions.admins:
+                        sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
 
             # - USER
 
@@ -560,7 +625,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
             case 'cancel':
                 text, markups = str(), str()
                 usertype = handler.recognition('usertype', user=call.from_user.id)
-                sessions.clear(usertype, call.from_user.id)
+                sessions.clear(call.from_user.id)
 
                 if 'update-balance' in call.data:
                     text = texts.control('user', 'balance', id=queries[-1])
@@ -648,7 +713,9 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     markups = buttons.control('admin', 'subscription', subscription=queries[-1],
                                               comeback='to-subscriptions-control')
 
-
+                elif 'to-project-settings' in call.data:
+                    text = texts.menu('admin', 'settings')
+                    markups = buttons.menu('admin', 'settings')
 
                 try:
                     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
@@ -679,7 +746,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         database.add_data('services', name=data['title'], domain=data['domain'])
                         text = texts.menu('admin', 'services')
                         markups = buttons.menu('admin', 'services')
-                        sessions.clear(handler.recognition('usertype', user=call.from_user.id), call.from_user.id)
+                        sessions.hclear(call.from_user.id)
 
                     else:
                         bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
@@ -786,6 +853,15 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     text = texts.processes('admin', mode, option, subscription=subscription)
                     markups = buttons.cancel_reply(f"изменение цены")
 
+                elif queries[1] == 'project':
+                    if queries[-1] == 'currency' or queries[-1] == 'cryptocurrency':
+                        sessions.start(call.from_user.id, 'admin', 'change-project-data', call.message.id)
+                        sessions.admins[call.from_user.id]['actions']['data']['type'] = 'currencies'
+                        sessions.admins[call.from_user.id]['actions']['data']['option'] = queries[-1]
+
+                        text = texts.processes('admin', 'change-project-data', type='currencies', option=queries[-1])
+                        markups = ''
+
                 if edit:
                     try:
                         bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
@@ -878,7 +954,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                "🔽 Управление данными 🔽"
                         markups = buttons.menu('admin', 'service', markups_type='inline', array=service)
 
-                        sessions.clear(handler.recognition('usertype', user=call.from_user.id), call.from_user.id)
+                        sessions.clear(call.from_user.id)
                         database.add_data(
                             'logs', user=admin['id'], username=admin['name'], usertype=usertype,
                             action=texts.logs('admin', 'service', 'status', array=service)
@@ -971,7 +1047,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                         handler.file('write', 'processes', processes)
                         bot.answer_callback_query(callback_query_id=call.id, text=answer)
-                        sessions.clear(handler.recognition('usertype', user=call.from_user.id), call.from_user.id)
+                        sessions.clear(call.from_user.id)
 
                         bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
                                               text=text, parse_mode='markdown')

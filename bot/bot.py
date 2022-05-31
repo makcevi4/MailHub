@@ -99,7 +99,8 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             bot.delete_message(message.from_user.id, delete)
 
                             text = texts.control('admin', 'subscription', subscription=subscription)
-                            markups = buttons.control('admin', 'subscription', subscription=subscription)
+                            markups = buttons.control('admin', 'subscription', subscription=subscription,
+                                                      comeback='to-subscriptions-control')
                         else:
                             text = texts.menu('admin', 'subscriptions')
                             markups = buttons.menu('admin', 'subscriptions')
@@ -380,14 +381,56 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     message.from_user.id, texts.control('admin', 'subscription', subscription='month'),
                     parse_mode='markdown', reply_markup=buttons.control('admin', 'subscription', subscription='month'))
 
-            # Handling | Change | Subscription price and expiration
+            # Handling | Change | Subscription price
             if message.from_user.id in sessions.admins \
-                    and sessions.admins[message.from_user.id]['type'] == 'update-subscription-data':
+                    and sessions.admins[message.from_user.id]['type'] == 'update-subscription-price':
                 if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
-                    print(message.text)
-                    print(sessions.admins[message.from_user.id])
+                    text, markups, status = str(), str(), False
+                    data = sessions.admins[message.from_user.id]['actions']['data']
+                    step = sessions.admins[message.from_user.id]['actions']['step']
+                    delete = sessions.admins[message.from_user.id]['message']['delete']
 
-            # Display | Menu | Project
+                    bot.delete_message(message.chat.id, message.id)
+
+                    match step:
+                        case 1:
+                            try:
+                                value = int(message.text)
+                                price = handler.file('read', 'settings')['prices'][data['subscription']]
+
+                                if value == price:
+                                    text = texts.error('same', value=value)
+                                    markups = buttons.cancel_reply('изменение цены')
+
+                                else:
+                                    status = True
+                                    settings = handler.file('read', 'settings')
+                                    old = settings['prices'][data['subscription']]
+                                    settings['prices'][data['subscription']] = value
+                                    handler.file('write', 'settings', settings)
+                                    text = texts.success('updated-data', 'subscription-price', old=old, new=value,
+                                                         currency=settings['main']['currency'])
+
+                            except ValueError:
+                                option = 'цены' if data['option'] == 'price' else 'продолжительности'
+                                text = texts.error('not-numeric')
+                                markups = buttons.cancel_reply(f'изменение {option}')
+
+                    bot.delete_message(message.chat.id, delete)
+                    delete = bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
+                    sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+
+                    if status:
+                        time.sleep(1)
+                        bot.send_message(
+                            message.from_user.id,
+                            texts.control('admin', 'subscription', subscription=data['subscription']),
+                            parse_mode='markdown',
+                            reply_markup=buttons.control('admin', 'subscription', subscription=data['subscription'],
+                                                         comeback='to-subscriptions-control'))
+
+
+        # Display | Menu | Project
             if message.text == '⭐️ Проект' and not abuse:
                 bot.send_message(message.from_user.id, texts.menu('admin', 'project'),
                                  parse_mode='markdown',
@@ -568,7 +611,7 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     text = texts.control('admin', 'services', step=1)
                     markups = buttons.control('admin', 'services', step=1)
 
-                elif 'to-messaging':
+                elif 'to-messaging' in call.data:
                     mode, step = queries[-2], int(queries[-1])
 
                     try:
@@ -595,6 +638,17 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     except KeyError:
                         text = texts.processes('admin', 'messaging')
                         markups = buttons.menu('admin', 'messaging')
+
+                elif 'to-subscriptions-control' in call.data:
+                    text = texts.menu('admin', 'subscriptions')
+                    markups = buttons.menu('admin', 'subscriptions')
+
+                elif 'to-subscription-control' in call.data:
+                    text = texts.control('admin', 'subscription', subscription=queries[-1])
+                    markups = buttons.control('admin', 'subscription', subscription=queries[-1],
+                                              comeback='to-subscriptions-control')
+
+
 
                 try:
                     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
@@ -690,6 +744,9 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                 elif queries[1] == 'subscription':
                     mode, subscription = queries[-1], queries[2]
+                    text = texts.control('admin', 'subscription', subscription=subscription, users=True)
+                    markups = buttons.control('admin', 'subscription', subscription=subscription,
+                                              users=True, comeback=f'to-subscription-control-{subscription}')
 
                 bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
                                       text=text, reply_markup=markups, parse_mode='markdown')
@@ -719,14 +776,15 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                 elif queries[1] == 'subscription':
                     edit = False
-                    mode, option, subscription = 'update-subscription-data', queries[-1], queries[2]
+                    mode, option, subscription = 'update-subscription-price', queries[-1], queries[2]
 
-                    sessions.start(call.from_user.id, 'admin', 'update-subscription-data', call.message.id)
+                    sessions.start(call.from_user.id, 'admin', 'update-subscription-price', call.message.id)
                     sessions.admins[call.from_user.id]['actions']['data']['subscription'] = subscription
                     sessions.admins[call.from_user.id]['actions']['data']['option'] = option
+                    sessions.admins[call.from_user.id]['actions']['step'] += 1
 
                     text = texts.processes('admin', mode, option, subscription=subscription)
-                    markups = buttons.cancel_reply(f"изменение {'цены' if option == 'price' else 'срока'}")
+                    markups = buttons.cancel_reply(f"изменение цены")
 
                 if edit:
                     try:
@@ -788,6 +846,18 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             data = handler.paginator(
                                 texts.show(mode, array=array), f'user-{mode}', id=user, page=page)
 
+                        elif queries[2] == 'subscription':
+                            title = 'Все пользователи' if queries[4] == 'all' \
+                                else 'Пользователи с активной подпиской'
+                            array = handler.format('list', 'subscribers',
+                                                   'active' if queries[4] == 'active' else None,
+                                                   subscription=queries[3], sort='users')
+
+                            data = handler.paginator(
+                                texts.show('users', array=array),
+                                f'subscription-{queries[3]}-{queries[4]}-users',
+                                int(queries[-1])
+                            )
                         text, markups = f"*{title}*\n\n{data[0]}", data[1]
                         answer_success, answer_error = '✅ Загружено', '❎ Ранее было загружено'
 
@@ -857,7 +927,22 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             array = database.get_data_by_value(mode, 'user', user)
                         data = handler.paginator(texts.show(mode, array=array), f'user-{mode}', id=user)
 
-                bot.send_message(call.message.chat.id, f'*{title}*\n\n{data[0]}',
+                    case 'subscription':
+                        match queries[-2]:
+                            case 'users':
+                                title = 'Все пользователи' if queries[-1] == 'all' \
+                                    else 'Пользователи с активной подпиской'
+                                array = handler.format('list', 'subscribers',
+                                                       'active' if queries[-1] == 'active' else None,
+                                                       subscription=queries[2], sort='users')
+
+                                data = handler.paginator(
+                                    texts.show('users', array=array),
+                                    f'subscription-{queries[2]}-{queries[-1]}-users'
+                                )
+
+                bot.send_message(call.message.chat.id,
+                                 f"*{title}*\n\n{' - Пользователей ещё нет 🤷🏻‍♂️' if len(data[0]) == 0 else data[0]}",
                                  parse_mode='markdown', reply_markup=data[1])
 
             case 'send':

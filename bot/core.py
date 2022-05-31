@@ -681,6 +681,29 @@ class Handler:
                             for service in services:
                                 result.append(service[value])
 
+                    case 'subscribers':
+                        subscription = data['subscription']
+                        subscriptions = self.database.get_data_by_value('subscriptions', 'type' ,subscription)
+
+                        if value == 'active':
+                            for subscription in subscriptions:
+                                if subscription['status'] == 'active':
+                                    result.append(subscription)
+                        else:
+                            result = subscriptions
+
+                        if 'sort' in data.keys() and data['sort'] == 'users':
+                            array = list()
+                            for subscription in result:
+                                user = self.database.get_data_by_value('users', 'id', subscription['user'])[0]
+                                array.append(user)
+
+                            result = array
+
+
+
+
+
             case 'dict':
                 result = dict()
 
@@ -1130,28 +1153,42 @@ class Texts:
                             text += " - Сервисов ещё нет 🤷🏻‍♂️"
 
                     case 'subscription':
-
-                        settings = self.handler.file('read', 'settings')
-                        currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
                         subscription = self.configs['subscriptions']['types'][data['subscription']]
-                        price = settings['prices'][data['subscription']]
-                        subscription_prices = self.handler.format('dict', 'currencies-convert', summary=price)
 
-                        text = "*Управление подпиской*\n\n" \
-                               f"📍 Название: *{subscription['title'].capitalize()}*\n" \
-                               f"🗓 Срок: *{subscription['duration']} " \
-                               f"{'ч.' if subscription['type'] == 'hour' else 'дн.'}*\n" \
-                               f"💰 Цена: *{subscription_prices[currency]} {currency} " \
-                               f"({subscription_prices[cryptocurrency]} {cryptocurrency})*\n\n" \
-                               "📌 Доступные действия:\n" \
-                               "1️⃣ Измененять цену подписки\n" \
-                               "2️⃣ Изменить срок действия\n" \
-                               "3️⃣ Посмотреть пользователей купивших подписку\n\n"
+                        if 'users' in data.keys() and data['users']:
+                            subscribers_all = self.handler.format(
+                                'list', 'subscribers', subscription=data['subscription'])
+                            subscribers_active = self.handler.format(
+                                'list', 'subscribers', 'active', subscription=data['subscription'])
 
+                            text += f"*Пользователи {subscription['title'][:-2]}ой подписки*\n\n" \
+                                    f"🟡 Всего: *{len(subscribers_all)}*\n" \
+                                    f"🟢 С активной подпиской: *{len(subscribers_active)}*\n\n" \
+                                    "📌 Доступные действия:\n" \
+                                    "1️⃣ Просмотр всех пользователей\n" \
+                                    "2️⃣ Просмотр пользователей с активной подпиской"
+
+                        else:
+                            settings = self.handler.file('read', 'settings')
+                            currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
+                            price = settings['prices'][data['subscription']]
+                            subscription_prices = self.handler.format('dict', 'currencies-convert', summary=price)
+
+                            text = "*Управление подпиской*\n\n" \
+                                   f"📍 Название: *{subscription['title'].capitalize()}*\n" \
+                                   f"🗓 Продолжительность: *{subscription['duration']} " \
+                                   f"{'ч.' if subscription['type'] == 'hour' else 'дн.'}*\n" \
+                                   f"💰 Цена: *{subscription_prices[currency]} {currency} " \
+                                   f"({subscription_prices[cryptocurrency]} {cryptocurrency})*\n\n" \
+                                   "📌 Доступные действия:\n" \
+                                   "1️⃣ Изменять цену подписки\n" \
+                                   "2️⃣ Посмотреть пользователей купивших подписку"
+
+                        text += "\n\n🔽 Выбери действие 🔽"
 
         return text
 
-    def processes(self, user, mode, option=None, step=1, **data):
+    def processes(self, user, mode, option=None, step=0, **data):
         text = str()
 
         match user:
@@ -1245,31 +1282,23 @@ class Texts:
                            f"💬 Текст: {message}\n\n" \
                            f"{action}"
 
-                elif mode == 'update-subscription-data':
-                    additional, values = None, {'first': None, 'second': None, 'third': None}
+                elif mode == 'update-subscription-price':
                     settings = self.handler.file('read', 'settings')
-                    option, subscription = option, self.configs['subscriptions']['types'][data['subscription']]
+                    subscription = self.configs['subscriptions']['types'][data['subscription']]
                     price, currency = settings['prices'][data['subscription']], settings['main']['currency']
                     subscription_prices = self.handler.format('dict', 'currencies-convert', summary=price)
 
-                    match option:
-                        case 'price':
-                            values['first'] = 'цены'
-                            values['second'] = 'цена'
-                            additional = 'текущую цену на подписку, введи число не равное текущему и не менее, чем 0.'
-
-                        case 'expiration':
-                            values['first'] = 'продолжительности'
-                            values['second'] = 'продолжительность'
-                            additional = 'текущую продолжительность подписки, введи числовое значение ' \
-                                         'не равное текущему и не менее 0.'
-
-                    text = f"*Изменение {values['first']}*\n\n" \
+                    text = f"*Изменение цены* \n\n" \
                            f"⭐️ Подписка: *{subscription['title'].capitalize()}*\n" \
-                           f"📍 Текущ{'ая' if option == 'price' else 'ая'} {values['second']}: " \
-                           f"*{subscription_prices[currency]} {currency}*\n\n" \
-                           f"📌 Для того, чтобы изменить {additional}\n\n" \
-                           "🔽 Введи данные 🔽"
+                           f"📍 Текущая цена: *{subscription_prices[currency]} {currency}*\n\n" \
+                           f"📌 Для того, чтобы изменить текущую цену на подписку, введи число не равное " \
+                           f"текущему и не менее 0.\n\n" \
+                           f"⚠️ Цена должна быть указана исключительно в *{currency}*.\n\n" \
+                           f"🔽 Введи данные 🔽"
+
+
+
+
 
                 elif mode == 'currencies':
                     pass
@@ -1462,7 +1491,9 @@ class Texts:
                 elif option == 'service-title':
                     text += f"Название сервиса успешно изменено с *{data['old']}* на *{data['new']}*"
                 elif option == 'service-domain':
-                    text += f"Домен сервиса успешно изменён с {data['old']} на {data['new']}"
+                    text += f"Домен сервиса успешно изменён с *{data['old']}* на *{data['new']}*"
+                elif option == 'subscription-price':
+                    text += f"Цена подписки успешно изменена с *{data['old']}* на *{data['new']} {data['currency']}*"
 
 
         return text
@@ -1551,7 +1582,6 @@ class Buttons:
                         markup, markups, row, additional = dict(), list(), list(), dict()
                         comeback = False
                         user = data['id']
-                        row = list()
 
                         items = {
                             '⛔️ Блокировка': {'type': 'control', 'action': 'ban'},
@@ -1590,6 +1620,9 @@ class Buttons:
                         else:
                             if len(row) != 0:
                                 markups.append(row)
+
+                        markup['inline_keyboard'] = markups
+                        markup = str(markup).replace('\'', '"')
 
                     case 'services':
                         markup.add(
@@ -1756,14 +1789,23 @@ class Buttons:
                                 markup = str(markup).replace('\'', '"')
 
                     case 'subscription':
-                        markup.add(
-                            types.InlineKeyboardButton(
-                                "💰 Цена", callback_data=f"update-subscription-{data['subscription']}-price"),
-                            types.InlineKeyboardButton(
-                                "🗓 Срок", callback_data=f"update-subscription-{data['subscription']}-expiration")
-                        )
-                        markup.add(types.InlineKeyboardButton(
-                            "👥 Пользователи", callback_data=f"control-subscription-{data['subscription']}-users"))
+                        if 'users' in data.keys() and data['users']:
+                            query = f"get-subscription-{data['subscription']}-users"
+                            markup.add(
+                                types.InlineKeyboardButton("🟢 Активные", callback_data=f"{query}-active"),
+                                types.InlineKeyboardButton("🟡 Все", callback_data=f"{query}-all")
+                            )
+
+                        else:
+                            markup.add(
+                                types.InlineKeyboardButton(
+                                    "💰 Цена", callback_data=f"update-subscription-{data['subscription']}-price"),
+                                types.InlineKeyboardButton(
+                                    "👥 Пользователи", callback_data=f"control-subscription-{data['subscription']}-users"))
+
+                        if 'comeback' in data.keys():
+                            markup.add(types.InlineKeyboardButton(
+                                "↩️ Назад", callback_data=f"comeback-{data['comeback']}"))
 
                     case 'percentages':
                         pass

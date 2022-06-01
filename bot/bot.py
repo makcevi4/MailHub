@@ -1,7 +1,9 @@
 import sys
+import ast
 import time
 import json
 import logging
+import requests
 
 from datetime import datetime
 from telebot.apihelper import ApiTelegramException
@@ -108,6 +110,14 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     elif 'изменение процента' in message.text:
                         text = texts.menu('admin', 'settings')
                         markups = buttons.menu('admin', 'settings')
+
+                    elif 'изменение валюты' in message.text or 'изменение криптовалюты' in message.text:
+                        if message.from_user.id in sessions.admins:
+                            delete = sessions.admins[message.from_user.id]['message']['delete']
+                            bot.delete_message(message.chat.id, delete)
+
+                        text = texts.control('admin', 'currencies'),
+                        markups = buttons.control('admin', 'currencies')
 
                 bot.send_message(message.from_user.id, text, parse_mode='markdown', reply_markup=markups)
                 sessions.clear(message.from_user.id)
@@ -567,31 +577,32 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                 if sessions.admins[message.from_user.id]['message']['id'] != message.message_id:
                     option = sessions.admins[message.from_user.id]['actions']['data']['type']
                     delete = sessions.admins[message.from_user.id]['message']['delete']
-                    text, markups, cancel = str(), str(), f"изменение {'процента' if option == 'percentage' else ''}"
-                    status = False
+                    text, markups = str(), str()
+
+                    if option == 'percentage':
+                        value = "процента"
+                    else:
+                        option = sessions.admins[message.from_user.id]['actions']['data']['option']
+                        value = 'валюты' if option == 'currency' else 'криптовалюты'
+
+                    cancel = f"изменение {value}"
+                    settings = handler.file('read', 'settings')
+                    current = settings['main'][option]
 
                     bot.delete_message(message.chat.id, message.id)
 
-                    try:
-                        value = int(message.text)
-                        settings = handler.file('read', 'settings')
-                        current = settings['main'][option]
+                    if option == 'percentage':
+                        try:
+                            value = int(message.text)
 
-                        if value == current:
-                            text = texts.error('same', value=value)
-                            markups = buttons.cancel_reply(cancel)
+                            if value == current:
+                                text = texts.error('same', value=value)
+                                markups = buttons.cancel_reply(cancel)
 
-                        elif value < 0:
-                            text = texts.error('less', value=0)
-                            markups = buttons.cancel_reply(cancel)
-                        else:
-                            match option:
-                                case 'currency' | 'cryptocurrency':
-                                    print('do')
-                                case 'percentage':
-                                    status = True
-
-                            if status:
+                            elif value < 0:
+                                text = texts.error('less', value=0)
+                                markups = buttons.cancel_reply(cancel)
+                            else:
                                 settings['main'][option] = value
                                 handler.file('write', 'settings', settings)
                                 bot.send_message(
@@ -604,14 +615,48 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                                 sessions.clear(message.from_user.id)
                                 time.sleep(0.5)
 
-                    except ValueError:
-                        text = texts.error('not-numeric')
-                        markups = buttons.cancel_reply(cancel)
+                        except ValueError:
+                            text = texts.error('not-numeric')
+                            markups = buttons.cancel_reply(cancel)
+                    else:
+                        value = message.text
 
-                    bot.delete_message(message.chat.id, delete)
-                    delete = bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
-                    if message.from_user.id in sessions.admins:
-                        sessions.admins[message.from_user.id]['message']['delete'] = delete.id
+                        try:
+                            value = int(value)
+                            text = texts.error('not-string')
+                            markups = buttons.cancel_reply(cancel)
+                            print('not string')
+
+                        except ValueError:
+                            if value.upper() == current:
+                                print('same')
+                                text = texts.error('same', value=value)
+                                markups = buttons.cancel_reply(cancel)
+                            else:
+                                match option:
+                                    case 'currency':
+                                        query = f'https://api.kuna.io/v3/tickers?symbols=btc{value.lower()}'
+                                        result = requests.get(query).json()
+                                        print(result)
+                                        print(requests.get('https://api.kuna.io/v3/currencies').json())
+                                        if type(result) is not list:
+                                            print('error')
+                                        else:
+                                            print('good')
+
+                                    case 'cryptocurrency':
+                                        query = f'https://api.kuna.io/v3/exchange-rates/{value.lower()}'
+                                        result = requests.get(query).json()
+
+                                        if 'messages' in result.keys():
+                                            print('error')
+                                        else:
+                                            print('good')
+
+                    # bot.delete_message(message.chat.id, delete)
+                    # delete = bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
+                    # if message.from_user.id in sessions.admins:
+                    #     sessions.admins[message.from_user.id]['message']['delete'] = delete.id
 
 
             # - USER
@@ -647,12 +692,17 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
             case 'comeback':
                 text, markups = str(), str()
-                if 'to-user-menu' in call.data:
-                    userdata = database.get_data_by_value('users', 'id', queries[-1])
-                    text = "*Управление пользователем*\n\n" \
-                           f"{texts.show('user', 'full', item=userdata[0])}\n\n" \
-                           "🔽 Управление данными 🔽"
-                    markups = buttons.menu('admin', 'user', id=userdata[0]['id'])
+                if 'to-user' in call.data:
+                    if queries[3] == 'menu':
+                        userdata = database.get_data_by_value('users', 'id', queries[-1])
+                        text = "*Управление пользователем*\n\n" \
+                               f"{texts.show('user', 'full', item=userdata[0])}\n\n" \
+                               "🔽 Управление данными 🔽"
+                        markups = buttons.menu('admin', 'user', id=userdata[0]['id'])
+
+                    elif queries[-2] == 'privileges' and queries[-1] == 'control':
+                        text = texts.control('user', 'privileges', id=int(queries[3]))
+                        markups = buttons.control('user', 'privileges', id=int(queries[3]))
 
                 elif 'to-set-service' in call.data:
                     if call.from_user.id in sessions.admins:
@@ -815,6 +865,10 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     markups = buttons.control('admin', 'subscription', subscription=subscription,
                                               users=True, comeback=f'to-subscription-control-{subscription}')
 
+                elif queries[1] == 'privileges':
+                    text = texts.control('user', 'privileges', step=2, type=queries[-1], id=int(queries[-2]))
+                    markups = buttons.control('user', 'privileges', step=2, type=queries[-1], id=int(queries[-2]))
+
                 bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,
                                       text=text, reply_markup=markups, parse_mode='markdown')
 
@@ -855,13 +909,31 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                 elif queries[1] == 'project':
                     if queries[-1] == 'currency' or queries[-1] == 'cryptocurrency':
+                        edit = False
                         sessions.start(call.from_user.id, 'admin', 'change-project-data', call.message.id)
                         sessions.admins[call.from_user.id]['actions']['data']['type'] = 'currencies'
                         sessions.admins[call.from_user.id]['actions']['data']['option'] = queries[-1]
 
+                        value = "валюты" if queries[-1] == 'currency' else "криптовалюты"
                         text = texts.processes('admin', 'change-project-data', type='currencies', option=queries[-1])
-                        markups = ''
+                        markups = buttons.cancel_reply(f"изменение {value}")
 
+                elif queries[1] == 'user':
+                    user, privilege = int(queries[2]), queries[-1]
+                    user_privileges = ast.literal_eval(database.get_data_by_value('users', 'id', user)[0]['privileges'])
+
+                    match queries[3]:
+                        case 'add':
+                            user_privileges.append(privilege)
+                        case 'delete':
+                            user_privileges.remove(privilege)
+
+                    database.change_data('users', 'privileges', user_privileges, user)
+                    text = texts.control('user', 'privileges', step=2, type=queries[3], id=user)
+                    markups = buttons.control('user', 'privileges', step=2, type=queries[3], id=user)
+                    bot.answer_callback_query(callback_query_id=call.id,
+                                              text=f"📍 Добавлена привилегия: "
+                                                   f"{configs['users']['privileges'][privilege]}")
                 if edit:
                     try:
                         bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,

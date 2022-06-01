@@ -21,10 +21,13 @@ from redis.exceptions import ConnectionError
 
 
 class Configs:
-    users = {'admin': 'администратор', 'user': 'пользователь'}
+    users = {
+        'types': {'admin': 'администратор', 'user': 'пользователь'},
+        'privileges': {'promoter': 'промоутер', 'test': 'тест'}
+    }
     services = {'statuses': {'active': 'работает', 'inactive': 'не работает'}}
     payments = {
-        'types': {'deposit': 'депозит'},
+        'types': {'deposit': 'депозит', 'accruals': 'начисления'},
         'statuses': {'accepted': "принято", 'processing': "в процессе", 'rejected': "отклонено"}}
     subscriptions = {
         'types': {
@@ -138,6 +141,7 @@ class Database:
                     `percentage` INT(3) NOT NULL,
                     `ban` BOOLEAN NOT NULL,
                     `cause` VARCHAR(255) NOT NULL,
+                    `privileges` TEXT NOT NULL,
                     `ip` VARCHAR(255) NOT NULL,
                     `agent` VARCHAR(255) NOT NULL
                     )"""
@@ -273,10 +277,11 @@ class Database:
                     case 'users':
                         query = f"""
                         INSERT INTO `{table}` (
-                        `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, `ban`, `cause`, `ip`, `agent`)
+                        `id`, `name`, `registration`, `balance`, `inviter`, 
+                        `percentage`, `ban`, `cause`, `privileges`, `ip`, `agent`)
                         VALUES (
                         {items['id']}, '{items['name']}', '{datetime.now()}', 0, {items['inviter']}, 
-                        {items['percentage']}, 0, 'None', 'None', '')
+                        {items['percentage']}, 0, 'None', '{list()}', 'None', '')
                         """
 
                     case 'subscriptions':
@@ -458,7 +463,7 @@ class Processes:
 
                         self.database.add_data(
                             'logs', id=self.handler.generate('unique-id'), user=admin['id'], username=admin['name'],
-                            usertype=list(self.configs['users'].keys())[0], action=log)
+                            usertype=list(self.configs['users']['types'].keys())[0], action=log)
 
                         self.bot.send_message(
                             self.configs['chats']['notifications'],
@@ -503,7 +508,7 @@ class Processes:
 
                             self.database.add_data(
                                 'logs', id=self.handler.generate('unique-id'), user=user['id'], username=user['name'],
-                                usertype=list(self.configs['users'].keys())[0], action=log)
+                                usertype=list(self.configs['users']['types'].keys())[0], action=log)
 
                             del processes['messages'][message_type][str(user['id'])]
 
@@ -701,9 +706,22 @@ class Handler:
 
                             result = array
 
-
-
-
+                    case 'privileges':
+                        privileges = self.configs['users']['privileges']
+                        user_privileges = ast.literal_eval(
+                                    self.database.get_data_by_value('users', 'id', data['user'])[0]['privileges'])
+                        match data['type']:
+                            case 'add':
+                                if len(user_privileges) == 0:
+                                    result = list(privileges.keys())
+                                else:
+                                    for privilege in privileges:
+                                        if privilege not in user_privileges:
+                                            result.append(privilege)
+                            case 'delete':
+                                for privilege in privileges:
+                                    if privilege in user_privileges:
+                                        result.append(privilege)
 
             case 'dict':
                 result = dict()
@@ -739,6 +757,18 @@ class Handler:
                         elif value == 'location':
                             result = "Неизвестно" if data['location'] is None \
                                 else f"{data['location']['city']}, {data['location']['country']}"
+
+                        elif value == 'privileges':
+                            privileges = ast.literal_eval(data['privileges'])
+
+                            if len(privileges) == 0:
+                                result = 'Нет'
+                            else:
+                                i = 1
+                                for privilege in privileges:
+                                    result += f"{self.configs['users']['privileges'][privilege]}" \
+                                              f"{', ' if i != len(privileges) else ''}"
+                                    i += 1
             case 'int':
                 result = 0
 
@@ -958,7 +988,7 @@ class Texts:
             case 'log':
                 item = data['item']
                 text += f"👤 Пользователь: [{item['username']}](tg://user?id={item['user']}) | ID:`{item['user']}`\n" \
-                        f"⚙️ Тип: {self.configs['users'][item['usertype']].capitalize()}\n" \
+                        f"⚙️ Тип: {self.configs['users']['types'][item['usertype']].capitalize()}\n" \
                         f"🗓 Дата: {item['date'].strftime('%H:%M:%S / %d.%m.%Y')}\n" \
                         f"🔔 Действие: {item['action']}"
 
@@ -980,12 +1010,14 @@ class Texts:
                             f"🗓 Подписка истекает: {subscription['expiration']}\n"
 
                 if additional == 'full':
+                    privileges = self.handler.format('str', 'user', 'privileges', privileges=item['privileges'])
                     inviter = False if not item['inviter'] else \
                         self.database.get_data_by_value('users', 'id', item['inviter'])[0]
                     inviter = "*Без пригласителя*" if not inviter else f"[{inviter['name']}]" \
                                                                        f"(tg://user?id={inviter['id']}) | " \
                                                                        f"ID:`{inviter['id']}`"
-                    text += f"\n🤝 Пригласил: {inviter}\n" \
+                    text += f"\n😎 Привилегии: *{privileges}*\n" \
+                            f"🤝 Пригласил: {inviter}\n" \
                             f"🔗 Приглашено: " \
                             f"*{len(self.database.get_data_by_value('users', 'inviter', item['id']))}*\n" \
                             f"💳 Платежей:" \
@@ -1138,6 +1170,33 @@ class Texts:
                                 "1️⃣ Добавить средства\n" \
                                 "2️⃣ Изменить баланс\n\n" \
                                 "🔽 Выбери действие 🔽"
+
+                    case 'privileges':
+                        privileges = self.configs['users']['privileges']
+                        user_privileges = ast.literal_eval(
+                            self.database.get_data_by_value('users', 'id', data['id'])[0]['privileges'])
+
+                        text += "*Привилегии*\n\n"
+
+                        for privilege in privileges:
+                            text += f"{'✅' if privilege in user_privileges else '❎'} " \
+                                    f"{privileges[privilege].capitalize()}\n"
+
+                        match step:
+                            case 1:
+                                text += "\n📍 Доступные действия:\n"
+                                if len(user_privileges) < len(privileges.keys()):
+                                    text += "🔸 Добавление привилегий\n"
+                                if len(user_privileges) > 0:
+                                    text += "🔹 Удаление привилегий\n"
+
+                                text += "\n🔽 Выбери действие 🔽"
+
+                            case 2:
+                                action = "добавить её пользователю" \
+                                    if data['type'] == 'add' else "удалить её у пользователя"
+                                text += f"\n🔔 Нажми на выбранную привилегию, чтобы {action}.\n\n" \
+                                        "🔽 Выбери привилегию 🔽"
 
             case 'admin':
                 match option:
@@ -1320,9 +1379,8 @@ class Texts:
                                    "🔽 Введи данные 🔽"
 
                         case 'currencies':
-
                             text = f"*Изменение {'валюты' if option == 'currency' else 'криптовалюты'}*\n\n" \
-                                   f"Для того, чтобы изменить {'валюту' if option == 'currency' else 'криптовалюту'}," \
+                                   f"📌  Для того, чтобы изменить {'валюту' if option == 'currency' else 'криптовалюту'}," \
                                    f" введи новую. В противном случае отмени дейтвие."
 
             case 'user':
@@ -1492,6 +1550,10 @@ class Texts:
 
             case 'not-numeric':
                 text += "Значение должно быть в числовом формате. Введи значение ещё раз или отмени действие."
+
+            case 'not-string':
+                text += "Значение должно быть в текстовом формате. Введи значение ещё раз или отмени действие."
+
         return text
 
     def success(self, mode, option=None, **data):
@@ -1617,6 +1679,7 @@ class Buttons:
                         items = {
                             '⛔️ Блокировка': {'type': 'control', 'action': 'ban'},
                             '💰 Баланс': {'type': 'control', 'action': 'balance'},
+                            '😎 Привилегии': {'type': 'control', 'action': 'privileges'}
                         }
 
                         if len(self.database.get_data_by_value('logs', 'user', user)):
@@ -1719,7 +1782,6 @@ class Buttons:
                             types.KeyboardButton('📨 Рассылка'),
                             types.KeyboardButton('⚙️ Настройки')
                         )
-                        print(markup)
 
                     case 'messaging':
                         comeback = 'проекту'
@@ -1782,6 +1844,49 @@ class Buttons:
                                 "🔄 Изменить", callback_data=f"update-balance-user-{userdata['id']}-change")
                         )
 
+                    case 'privileges':
+                        match step:
+                            case 1:
+                                privileges = self.configs['users']['privileges']
+                                user_privileges = ast.literal_eval(
+                                    self.database.get_data_by_value('users', 'id', data['id'])[0]['privileges'])
+
+                                if len(user_privileges) < len(privileges.keys()):
+                                    markup.add(types.InlineKeyboardButton(
+                                        "➕ Добавить", callback_data=f"control-privileges-user-{data['id']}-add"))
+                                if len(user_privileges) > 0:
+                                    markup.add(types.InlineKeyboardButton(
+                                        "➖Удалить", callback_data=f"control-privileges-user-{data['id']}-delete"))
+                            case 2:
+                                comeback, width = False, 2
+                                markup, markups, row, additional = dict(), list(), list(), dict()
+
+                                privileges = self.handler.format('list', 'privileges',
+                                                                 type=data['type'], user=data['id'])
+
+                                for privilege in privileges:
+                                    if len(row) < width:
+                                        query = f"update-user-{data['id']}-{data['type']}-privilege-{privilege}"
+                                        row.append({
+                                            'text': self.configs['users']['privileges'][privilege].capitalize(),
+                                            'callback_data': query
+                                        })
+
+                                    if len(row) == width:
+                                        markups.append(row)
+                                        row = list()
+
+                                else:
+                                    if len(row) != 0:
+                                        markups.append(row)
+
+                                markups.append([{
+                                    'text': '↩️ Назад',
+                                    'callback_data': f"comeback-to-user-{data['id']}-privileges-control"
+                                }])
+                                markup['inline_keyboard'] = markups
+                                markup = str(markup).replace('\'', '"')
+
                 if comeback:
                     markup.add(
                         types.InlineKeyboardButton(
@@ -1839,15 +1944,10 @@ class Buttons:
                                 "↩️ Назад", callback_data=f"comeback-{data['comeback']}"))
 
                     case 'currencies':
-                        markup.add(
-                            types.InlineKeyboardButton(
-                                "▫️ Валюта", callback_data='update-project-currency'),
-                            types.InlineKeyboardButton(
-                                "▪️ Криптовалюта", callback_data='update-project-cryptocurrency')
-                        )
-                        markup.add(
-                            types.InlineKeyboardButton("↩️ Назад", callback_data='comeback-to-project-settings')
-                        )
+                        markup.add(types.InlineKeyboardButton("▫️ Валюта", callback_data='update-project-currency'))
+                        markup.add(types.InlineKeyboardButton(
+                            "▪️ Криптовалюта", callback_data='update-project-cryptocurrency'))
+                        markup.add(types.InlineKeyboardButton("↩️ Назад", callback_data='comeback-to-project-settings'))
 
                     case 'send-message':
                         markup.add(

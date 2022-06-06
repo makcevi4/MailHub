@@ -1,3 +1,4 @@
+import re
 import ast
 import time
 import json
@@ -27,8 +28,8 @@ class Configs:
     }
     services = {'statuses': {'active': 'работает', 'inactive': 'не работает'}}
     payments = {
-        'types': {'deposit': 'депозит', 'accruals': 'начисления'},
-        'statuses': {'accepted': "принято", 'processing': "в процессе", 'rejected': "отклонено"}}
+        'types': {'deposit': 'депозит', 'accrual': 'начисление'},
+        'statuses': {'success': "успешно", 'pending': "в процессе", 'error': "отклонено"}}
     subscriptions = {
         'types': {
             'demo': {'title': 'пробная', 'type': 'hour', 'duration': 2},
@@ -123,7 +124,7 @@ class Database:
                 case 'logs':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `user` INT(11) NOT NULL,
+                    `user` BIGINT(12) NOT NULL,
                     `username` VARCHAR(255) NOT NULL,
                     `usertype` VARCHAR(255) NOT NULL,
                     `date` DATETIME NOT NULL,
@@ -133,23 +134,25 @@ class Database:
                 case 'users':
                     query = f"""
                     CREATE TABLE `{table}` (
-                    `id` INT(11) NOT NULL,
+                    `id` BIGINT(12) NOT NULL,
                     `name` VARCHAR(255) NOT NULL,
                     `registration` DATETIME NOT NULL,
                     `balance` FLOAT NOT NULL,
-                    `inviter` INT(11) NOT NULL,
+                    `inviter` INT(12) NOT NULL,
                     `percentage` INT(3) NOT NULL,
                     `ban` BOOLEAN NOT NULL,
                     `cause` VARCHAR(255) NOT NULL,
                     `privileges` TEXT NOT NULL,
                     `ip` VARCHAR(255) NOT NULL,
-                    `agent` VARCHAR(255) NOT NULL
+                    `agent` VARCHAR(255) NOT NULL,
+                    `data` JSON NOT NULL
                     )"""
+
                 case 'subscriptions':
                     query = f"""
                     CREATE TABLE `{table}` (
                     `type` VARCHAR(255) NOT NULL,
-                    `user` INT(11) NOT NULL,
+                    `user` BIGINT(12) NOT NULL,
                     `status` VARCHAR(255) NOT NULL,
                     `purchased` DATETIME NOT NULL,
                     `expiration` DATETIME NOT NULL
@@ -162,7 +165,7 @@ class Database:
                     `date` DATETIME NOT NULL,
                     `status` VARCHAR(255) NOT NULL,
                     `type` VARCHAR(255) NOT NULL,
-                    `user` INT(11) NOT NULL,
+                    `user` BIGINT(12) NOT NULL,
                     `amount` FLOAT NOT NULL,
                     `expiration` DATETIME NOT NULL
                     )"""
@@ -171,7 +174,7 @@ class Database:
                     query = f"""
                     CREATE TABLE `{table}` (
                     `name` VARCHAR(255) NOT NULL,
-                    `domain` VARCHAR(255) NOT NULL,
+                    `domains` TEXT NOT NULL,
                     `status` VARCHAR(255) NOT NULL
                     )"""
 
@@ -182,7 +185,7 @@ class Database:
                     `date` DATETIME NOT NULL,
                     `status` VARCHAR(255) NOT NULL,
                     `service` VARCHAR(255) NOT NULL,
-                    `user` INT(11) NOT NULL,
+                    `user` BIGINT(12) NOT NULL,
                     `mail` JSON NOT NULL
                     )"""
 
@@ -277,11 +280,11 @@ class Database:
                     case 'users':
                         query = f"""
                         INSERT INTO `{table}` (
-                        `id`, `name`, `registration`, `balance`, `inviter`, 
-                        `percentage`, `ban`, `cause`, `privileges`, `ip`, `agent`)
+                        `id`, `name`, `registration`, `balance`, `inviter`, `percentage`, 
+                        `ban`, `cause`, `privileges`, `ip`, `agent`, `data`)
                         VALUES (
                         {items['id']}, '{items['name']}', '{datetime.now()}', 0, {items['inviter']}, 
-                        {items['percentage']}, 0, 'None', '{list()}', 'None', '')
+                        {items['percentage']}, 0, 'None', '{list()}', 'None', '', '{json.dumps(dict())}')
                         """
 
                     case 'subscriptions':
@@ -294,19 +297,22 @@ class Database:
                         """
 
                     case 'payments':
-                        status = list(self.configs['payments']['statuses'].keys())[1]
+                        status = items['status'] if 'status' in items.keys() \
+                            else list(self.configs['payments']['statuses'].keys())[1]
+
                         query = f"""
                         INSERT INTO `{table}` (`id`, `date`, `status`, `type`, `user`, `amount`, `expiration`)
                         VALUES (
-                        {items['id']}, '{datetime.now()}', '{status}', '{items['type']}', 
+                        '{items['id']}', '{datetime.now()}', '{status}', '{items['type']}', 
                         {items['user']}, {items['amount']}, '{items['expiration']}')
                         """
 
                     case 'services':
+                        domains = str(items['domains']).replace('\'', '"')
                         status = list(self.configs['services']['statuses'].keys())[-1]
                         query = f"""
-                        INSERT INTO `{table}` (`name`, `domain`, `status`)
-                        VALUES ('{items['name']}', '{items['domain']}', '{status}')
+                        INSERT INTO `{table}` (`name`, `domains`, `status`)
+                        VALUES ('{items['name']}', '{domains}', '{status}')
                         """
 
                     case 'mailings':
@@ -349,8 +355,12 @@ class Database:
                         controller.execute(
                             f"""UPDATE `{table}` SET `{setter}` = '{data}' WHERE `{table}`.`{column}` = '{value}'""")
                 elif type(data) == list:
-                    controller.execute(
-                        f'''UPDATE `{table}` SET `{setter}` = "{data}" WHERE `{table}`.`{column}` = {value}''')
+                    if type(column) is int:
+                        controller.execute(
+                            f"""UPDATE `{table}` SET `{setter}` = "{data}" WHERE `{table}`.`{column}` = {value}""")
+                    else:
+                        controller.execute(
+                            f"""UPDATE `{table}` SET `{setter}` = "{data}" WHERE `{table}`.`{column}` = '{value}'""")
 
                 connection.commit()
                 connection.close()
@@ -421,13 +431,6 @@ class Processes:
         self.texts = texts
         self.buttons = buttons
 
-    def send_message(self, userid, text):
-        try:
-            self.bot.send_message(userid, text, parse_mode='markdown')
-            return True
-        except ApiTelegramException as error:
-            return error.error_code
-
     def messagings(self):
         processes = self.handler.file('read', 'processes')
         status, cause = False, None
@@ -441,7 +444,7 @@ class Processes:
                         text = processes['messages'][message_type][key]['text']
 
                         for user in users:
-                            status = self.send_message(user, text)
+                            status = self.handler.send_message(self.bot, user, text)
 
                             if type(status) is bool:
                                 if status:
@@ -484,7 +487,7 @@ class Processes:
                                 user = {'id': user, 'name': 'Неизвестно'}
 
                             if 'ban' in user.keys() and not user['ban']:
-                                status = self.send_message(user['id'], data['text'])
+                                status = self.handler.send_message(self.bot, user['id'], data['text'])
 
                             if type(status) is bool and not status:
                                 cause = "Пользователь ранее был заблокирован"
@@ -641,6 +644,13 @@ class Handler:
 
         return character_pages[page - 1], markups
 
+    def send_message(self, bot, userid, text, markups=''):
+        try:
+            bot.send_message(userid, text, parse_mode='markdown', reply_markup=markups)
+            return True
+        except ApiTelegramException as error:
+            return error.error_code
+
     def calculate(self, mode, option=None, **data):
         result = 0
 
@@ -660,7 +670,28 @@ class Handler:
 
                     result = {'now': current, 'expiration': calculated}
 
+            case 'payments':
+                payments = self.database.get_data_by_value('payments', 'type', option[:-1])
+
+                for payment in payments:
+                    if option == 'deposits':
+                        if payment['status'] == 'success':
+                            result += payment['amount']
+                    else:
+                        result += payment['amount']
+
+                result = round(result, 2)
+
+            case 'accrual':
+                result = round(data['amount'] / 100 * data['percentage'], 2)
+
         return result
+
+    @staticmethod
+    def replace(text, conditions):
+        conditions = dict((re.escape(k), v) for k, v in conditions.iteritems())
+        pattern = re.compile("|".join(conditions.keys()))
+        return pattern.sub(lambda m: conditions[re.escape(m.group(0))], text)
 
     def format(self, mode, option=None, value=None, **data):
         result = None
@@ -685,11 +716,16 @@ class Handler:
 
                         if value is not None:
                             for service in services:
-                                result.append(service[value])
+                                if value == 'domains':
+                                    domains = ast.literal_eval(service[value])
+                                    for domain in domains:
+                                        result.append(domain)
+                                else:
+                                    result.append(service[value])
 
                     case 'subscribers':
                         subscription = data['subscription']
-                        subscriptions = self.database.get_data_by_value('subscriptions', 'type' ,subscription)
+                        subscriptions = self.database.get_data_by_value('subscriptions', 'type',subscription)
 
                         if value == 'active':
                             for subscription in subscriptions:
@@ -723,6 +759,23 @@ class Handler:
                                     if privilege in user_privileges:
                                         result.append(privilege)
 
+                    case 'domains':
+                        services = self.database.get_data('services')
+
+                        for service in services:
+                            domains = ast.literal_eval(service['domains'])
+
+                            for domain in domains:
+                                result.append(domain.replace('/', ' ').split()[1])
+
+                    case 'promoter':
+                        if value == 'accruals':
+                            payments = self.database.get_data_by_value('payments', 'user', data['user'])
+
+                            if len(payments) > 0:
+                                for payment in payments:
+                                    if payment['type'] == 'accrual':
+                                        result.append(payment)
             case 'dict':
                 result = dict()
 
@@ -733,6 +786,27 @@ class Handler:
                         courses = requests.get(f'https://api.kuna.io/v3/exchange-rates/{cryptocurrency.lower()}').json()
                         amount = round(summary / courses[currency.lower()] if summary != 0 else summary, 5)
                         result = {currency: summary, cryptocurrency: amount}
+
+                    case 'payments':
+                        result = {'total': 0}
+
+                        if value == 'deposits':
+                            for key in self.configs['payments']['statuses'].keys():
+                                result[key] = list()
+                        else:
+                            result['data'] = list()
+
+                        payments = self.database.get_data_by_value('payments', 'type', value[:-1])
+
+                        if len(payments) > 0:
+                            for payment in payments:
+                                match value:
+                                    case 'deposits':
+                                        result[payment['status']].append(payment)
+                                    case 'accruals':
+                                        result['data'].append(payment)
+
+                                result['total'] += 1
 
             case 'str':
                 result = str()
@@ -759,18 +833,68 @@ class Handler:
                                 else f"{data['location']['city']}, {data['location']['country']}"
 
                         elif value == 'privileges':
-                            privileges = ast.literal_eval(data['privileges'])
+                            privileges = data['privileges'] if type(data['privileges']) is list \
+                                else ast.literal_eval(data['privileges'])
 
-                            if len(privileges) == 0:
-                                result = 'Нет'
-                            else:
-                                i = 1
+                            if 'additional' in data.keys() and data['additional'] == 'menu':
                                 for privilege in privileges:
-                                    result += f"{self.configs['users']['privileges'][privilege]}" \
-                                              f"{', ' if i != len(privileges) else ''}"
+                                    result += f" - {self.configs['users']['privileges'][privilege].capitalize()} | " \
+                                              f"Команда: /{privilege}\n"
+                            else:
+                                if len(privileges) == 0:
+                                    result = 'Нет'
+                                else:
+                                    i = 1
+                                    for privilege in privileges:
+                                        result += f"{self.configs['users']['privileges'][privilege]}" \
+                                                  f"{', ' if i != len(privileges) else ''}"
+                                        i += 1
+
+                    case 'admin':
+                        if value == 'payments':
+                            i, payments = 1, self.format('dict', 'payments', 'deposits')
+                            del payments['total']
+
+                            for payment_status, payment_data in payments.items():
+                                if len(payment_data) > 0:
+                                    result += f"\n{self.recognition('emoji', 'status', status=payment_status)} " \
+                                              f"{self.configs['payments']['statuses'][payment_status].capitalize()}"
+                                i += 1
+
+                        elif value == 'services':
+                            if len(data['services']) > 0:
+                                for service in data['services']:
+                                    result += f" - {service}\n"
+                            else:
+                                result = None
+
+                        elif value == 'domains':
+                            i = 1
+                            if 'domains' in data.keys():
+                                domains = data['domains'] if type(data['domains']) is list \
+                                    else ast.literal_eval(data['domains'])
+                            else:
+                                domains = self.format('list', 'domains')
+
+                            if len(domains) > 0:
+                                for domain in domains:
+                                    result += f"\n{i}. {domain}"
                                     i += 1
+                            else:
+                                result = None
+
+                        elif value == 'domain-service':
+                            for service in self.database.get_data('services'):
+                                domains = ast.literal_eval(service['domains'])
+
+                                for domain in domains:
+                                    if data['domain'] == domain or data['domain'] in domain:
+                                        result = service['name']
+
+
             case 'int':
                 result = 0
+
 
         return result
 
@@ -832,10 +956,11 @@ class Handler:
                 actions = [
                     '👨🏻‍💻 Пользователи', '👁 Посмотреть всех', '🕹 Управлять',
                     '🛠 Сервисы', '➕ Добавить', '⚙️ Управлять',
-                    '🛍 Подписки', 'Пробная', 'Недельная', 'Месячная'
+                    '🛍 Подписки', 'Пробная', 'Недельная', 'Месячная',
+                    '💰 Финансы', '💳 Платежи', '👁 Посмотреть платежи', '🛠 Управлять', '🪙 Начисления',
                     '⭐️ Проект', '🗞 Логи',
                     '📨 Рассылка', '👥 Всем', '👤 Одному',
-                    '⚙️ Настройки', '🪙 Валюта', '🧮 Процент'
+                    '⚙️ Настройки', '🪙 Валюта', '🧮 Процент', '🔗 Домены'
                 ]
 
                 if action in actions:
@@ -851,12 +976,23 @@ class Handler:
 
                         bot.send_message(user['id'], texts.error('banned', user=user['id']), parse_mode='markdown',
                                          reply_markup=buttons.support())
+            case 'promoter':
+                result, action = False, data['action']
+                privileges = ast.literal_eval(
+                    self.database.get_data_by_value('users', 'id', data['user'])[0]['privileges'])
+
+                actions = ['👥 Пользователи', '💸 Начисления', '💰 Запросить выплату']
+
+                if action in actions:
+                    if 'promoter' in privileges or data['usertype'] == 'admin':
+                        result = True
+
             case 'emoji':
                 if option == 'status':
                     match data['status']:
                         case 'accepted' | 'success' | 'active':
                             result = '🟢'
-                        case 'processing' | 'waiting':
+                        case 'processing' | 'waiting' | 'pending':
                             result = '🟡'
                         case 'rejected' | 'error' | 'inactive':
                             result = '🔴'
@@ -883,14 +1019,18 @@ class Texts:
                 match mode:
                     case 'main':
                         settings = self.handler.file('read', 'settings')
-                        prices = settings['prices']
-                        currency, cryptocurrency = settings['main']['currency'], settings['main']['cryptocurrency']
 
                         text = "*АДМИН-ПАНЕЛЬ*\n\n" \
                                f"✏️ Логов: *{len(self.database.get_data('logs'))}*\n" \
                                f"👥 Пользователей: *{len(self.database.get_data('users'))}*\n" \
                                f"📨 Рассылок: *{len(self.database.get_data('mailings'))}*\n" \
                                f"⭐️ Подписок: *{len(self.database.get_data('subscriptions'))}*\n\n" \
+                               f"*Сервисы*\n" \
+                               f"📌 Всего: *{len(self.database.get_data('services'))}*\n" \
+                               f"🟢 Активные: " \
+                               f"*{len(self.database.get_data_by_value('services', 'status', 'active'))}*\n" \
+                               f"🔴 Неактивные: " \
+                               f"*{len(self.database.get_data_by_value('services', 'status', 'inactive'))}*\n\n" \
                                f"🔽 Выбери действие 🔽"
 
                     case 'users':
@@ -925,6 +1065,40 @@ class Texts:
                                     f"({subscription_prices[cryptocurrency]} {cryptocurrency})*\n"
 
                         text += "\n🔽 Выбери подписку 🔽"
+                    case 'finances':
+                        currency = self.handler.file('read', 'settings')['main']['currency']
+                        text = "*Финансы*\n\n" \
+                               f"🔸 Всего платежей: *{self.handler.format('dict', 'payments', 'deposits')['total']}*\n" \
+                               f"📌 Сумма успешных платежей: " \
+                               f"*{self.handler.calculate('payments', 'deposits')} {currency}*\n\n" \
+                               f"🔹 Всего начислений: *{self.handler.format('dict', 'payments', 'accruals')['total']}*\n" \
+                               f"📌 Начислено: *{self.handler.calculate('payments', 'accruals')} {currency}*\n\n" \
+                               "📍 Доступные действия:\n" \
+                               "1️⃣ Просмотр и изменение платежей\n" \
+                               "2️⃣ Просмотр всех начислений\n\n" \
+                               "🔽 Выбери действие 🔽"
+
+                    case 'accruals':
+                        pass
+
+                    case 'payments':
+                        payments = self.handler.format('dict', 'payments', 'deposits')
+                        text += "*Платежи*\n\n" \
+                                f"📌 Всего платежей: *{payments['total']}*\n" \
+
+                        statuses = self.configs['payments']['statuses']
+                        for key, value in statuses.items():
+                            text += f"{self.handler.recognition('emoji', 'status', status=key)} " \
+                                    f"{value.capitalize()}: *{len(payments[key])}*\n"
+
+                        if payments['total'] > 0:
+                            text += "\n📍 Доступные действия:\n" \
+                                    "1️⃣ Просмотр платежей\n"
+
+                            if len(payments['pending']) > 0:
+                                "2️⃣ Управление платжем\n" \
+
+                        text += "\n🔽 Выбери действие 🔽"
 
                     case 'project':
                         text += "*Проект*\n\n" \
@@ -944,7 +1118,8 @@ class Texts:
                         text += "*Настройки*\n\n" \
                                 "📍 Доступные изменения:\n" \
                                 "1️⃣ Валюты или криптовалюты\n" \
-                                "2️⃣ Общего реферального процента\n\n" \
+                                "2️⃣ Общего реферального процентат\n" \
+                                "3️⃣ Работа с доменами\n\n" \
                                 "🔽 Выбери действие 🔽"
 
             case 'user':
@@ -952,12 +1127,12 @@ class Texts:
 
                 match mode:
                     case 'main':
-                        # f"`https://t.me/{self.configs['bot']['login']}?start={userdata[0]}`\n"
+                        privileges = ast.literal_eval(userdata['privileges'])
                         currency = self.handler.file('read', 'settings')['main']['currency']
                         subscription = self.handler.recognition('subscription', 'user', user=userdata['id'])
 
                         text = "*ГЛАВНОЕ МЕНЮ*\n\n" \
-                               f"💰 Баланс: *{0} {currency}*\n" \
+                               f"💰 Баланс: *{userdata['balance']} {currency}*\n" \
                                f"⭐️ Текущая подписка: " \
                                f"*{'Нет' if subscription is None else subscription['title']}*\n"
 
@@ -974,10 +1149,34 @@ class Texts:
                                 f" - Месячная: " \
                                 f"*{self.handler.recognition('subscription', 'price', type='month')}*\n\n" \
                                 f"*Сервисы*\n" \
-                                f" - None\n\n"
+                                f"📌 Всего: *{len(self.database.get_data('services'))}*\n" \
+                                f"🟢 Активные: " \
+                                f"*{len(self.database.get_data_by_value('services', 'status', 'active'))}*\n" \
+                                f"🔴 Неактивные: " \
+                                f"*{len(self.database.get_data_by_value('services', 'status', 'inactive'))}*\n"
 
-                        text += "🔽 Выбери действие 🔽"
+                        if len(privileges) > 0:
+                            privileges = self.handler.format('str', 'user', 'privileges',
+                                                             privileges=privileges, additional='menu')
 
+                            text += f"\n🔔 У тебя есть доступ к дополнительным меню:\n {privileges}\n"
+
+                        text += "\n🔽 Выбери действие 🔽"
+
+            case 'promoter':
+                match mode:
+                    case 'main':
+                        user = self.database.get_data_by_value('users', 'id', data['user'])[0]
+
+                        text += "*Промоутинг*\n\n" \
+                                f"🤝 Приглашено: *" \
+                                f"{len(self.database.get_data_by_value('users', 'inviter', user['id']))}*\n" \
+                                f"💸 Начислений: *{0}*\n" \
+                                f"💰 Доступно к выводу: *{user['balance']}*\n" \
+                                f"🔗 Ссылка на приглашение: " \
+                                f"`https://t.me/{self.configs['bot']['login']}?start={user['id']}`\n\n" \
+                                f"Доступные действия:" \
+                                f"Просмотр"
         return text
 
     def show(self, mode, additional=None, amount=5, reverse=True, option=None, **data):
@@ -1020,6 +1219,7 @@ class Texts:
                             f"🤝 Пригласил: {inviter}\n" \
                             f"🔗 Приглашено: " \
                             f"*{len(self.database.get_data_by_value('users', 'inviter', item['id']))}*\n" \
+                            f"🧮 Процент: *{item['percentage']}*\n" \
                             f"💳 Платежей:" \
                             f" *{len(self.database.get_data_by_value('payments', 'user', item['id']))}*\n" \
                             f"📨 Рассылок: " \
@@ -1054,13 +1254,19 @@ class Texts:
                 item = data['item']
                 currency = self.handler.file('read', 'settings')['main']['currency']
                 userdata = self.database.get_data_by_value('users', 'id', item['user'])[0]
-                text += f"🆔 Уникальный ID: `{item['id']}`\n" \
-                        f"⚙️ Тип: *{self.configs['payments']['types'][item['type']].capitalize()}*\n" \
-                        f"{self.handler.recognition('emoji', 'status', status=item['status'])} " \
-                        f"Статус: *{self.configs['payments']['statuses'][item['status']].capitalize()}*\n" \
-                        f"💰 Сумма: *{item['amount']} {currency}*\n" \
-                        f"👤 Пользователь: [{userdata['name']}](tg://user?id={userdata['id']}) | ID:`{userdata['id']}`\n" \
-                        f"🗓 Дата: {item['date'].strftime('%H:%M:%S / %d.%m.%Y')}"
+
+                if additional == 'promoter':
+                    text += f"🆔 Уникальный ID: `{item['id']}`\n" \
+                            f"💰 Сумма: *{item['amount']} {currency}*\n" \
+                            f"🗓 Дата: {item['date'].strftime('%H:%M:%S / %d.%m.%Y')}"
+                else:
+                    text += f"🆔 Уникальный ID: `{item['id']}`\n" \
+                            f"⚙️ Тип: *{self.configs['payments']['types'][item['type']].capitalize()}*\n" \
+                            f"{self.handler.recognition('emoji', 'status', status=item['status'])} " \
+                            f"Статус: *{self.configs['payments']['statuses'][item['status']].capitalize()}*\n" \
+                            f"💰 Сумма: *{item['amount']} {currency}*\n" \
+                            f"👤 Пользователь: [{userdata['name']}](tg://user?id={userdata['id']}) | ID:`{userdata['id']}`\n" \
+                            f"🗓 Дата: {item['date'].strftime('%H:%M:%S / %d.%m.%Y')}"
 
                 return text
 
@@ -1098,9 +1304,9 @@ class Texts:
             case 'service':
                 item = data['item']
                 text += f"📍 Название: *{item['name']}*\n" \
-                        f"🔗 Домен: {item['domain']}\n" \
                         f"{self.handler.recognition('emoji', 'status', status=item['status'])} " \
-                        f"Статус: *{self.configs['services']['statuses'][item['status']].capitalize()}*"
+                        f"Статус: *{self.configs['services']['statuses'][item['status']].capitalize()}*\n" \
+                        f"🔗 Домены: *{len(ast.literal_eval(item['domains']))}*"
 
                 return text
 
@@ -1128,8 +1334,8 @@ class Texts:
                     result = self.show('subscription', item=item)
 
                 case 'payments':
-                    value = 'Платёж'
-                    result = self.show('payment', item=item)
+                    value = "Начисление" if additional == 'promoter' else "Платёж"
+                    result = self.show('payment', additional, item=item)
 
                 case 'referrals':
                     value = 'Реферал'
@@ -1212,6 +1418,48 @@ class Texts:
                         else:
                             text += " - Сервисов ещё нет 🤷🏻‍♂️"
 
+                    case 'domains':
+                        if 'service' in data.keys():
+                            service = self.database.get_data_by_value('services', 'name', data['service'])[0]
+                            domains = ast.literal_eval(service['domains'])
+
+                            formatted_domains = self.handler.format('str', 'admin', 'domains', domains=domains)
+                            text += "*Управление доменами*\n\n" \
+                                    f"⚙️ Сервис: *{service['name']}*\n" \
+                                    f"📌 Домены: {formatted_domains if formatted_domains is not None else 'Доменов нет'}\n" \
+                                    "\n📍 Доступные действия:\n" \
+                                    "1️⃣ Добавление домена\n"
+
+                            if len(domains) > 0:
+                                text += "2️⃣ Удаление домена\n"
+
+                            text += "\n🔽 Выбери действие 🔽"
+                        else:
+                            domains = self.handler.format('str', 'admin', 'domains')
+                            text += "*Домены проекта*\n\n" \
+                                    f"📍 Доступные домены: " \
+                                    f"{'Нет' if domains is None else domains}"
+                            if domains is not None:
+                                text += "📌 Нажми на кнопку с номером, соответствующим порядоковому номеру домена."
+
+                    case 'domain':
+                        if 'services' in data.keys():
+                            services = self.handler.format('str', 'admin', 'services', services=data['services'])
+                            text += "*Изменение сервиса*\n\n" \
+                                    f"🔗 Домен: {data['domain']}\n" \
+                                    f"📍 Доступные сервисы:\n" \
+                                    f"{'- Сервисов, на которые можно изменить, ещё нет 🤷🏻‍♂️' if services is None else services}"
+                            if services is not None:
+                                text += "\n 📌 Нажми на кнопку с сервиса, на который хочешь поменять."
+                        else:
+                            text += "*Управление доменом*\n\n" \
+                                    f"🔗 Домен: {data['domain']}\n" \
+                                    f"⚙️ Сервис: {data['service']}\n\n" \
+                                    "📍 Доступные действия:\n" \
+                                    "1️⃣ Изменение сервиса\n" \
+                                    "2️⃣ Удаление домена\n\n" \
+                                    "🔽 Выбери действие 🔽"
+
                     case 'subscription':
                         subscription = self.configs['subscriptions']['types'][data['subscription']]
 
@@ -1246,6 +1494,14 @@ class Texts:
 
                         text += "\n\n🔽 Выбери действие 🔽"
 
+                    case 'payments':
+                        text += "*Просмотр платежей*\n\n" \
+                                "📌 Доступные действия:\n" \
+                                "1️⃣ Просмотр всех платежей\n" \
+                                f"2️⃣ Просмотр платежей по статусам: " \
+                                f"{self.handler.format('str', 'admin', 'payments')}\n\n" \
+                                "🔽 Выбери действие 🔽"
+
                     case 'currencies':
                         settings = self.handler.file('read', 'settings')['main']
                         text += "*Изменение валюты*\n\n" \
@@ -1268,6 +1524,19 @@ class Texts:
                             "📌 Для того, чтобы найти пользователя, введи его ID. " \
                             "В противном случае отмени действие.\n\n" \
                             "🔽 Введи идентификатор 🔽"
+
+                elif mode == 'find-payment':
+                    text += "*Поиск платежа*\n\n" \
+                            "📌 Для того, чтобы найти платёж, введи его уникальный ID. " \
+                            "В противном случае отмени действие.\n\n" \
+                            "⚠️ Управлять можно только платежами которые находятся в статусе *«В обработке»*\n\n" \
+                            "🔽 Введи идентификатор 🔽"
+
+                elif mode == 'update-user-percentage':
+                    text = "*Изменение процента*\n\n" \
+                           f"🧮 Текущий процент: *{data['percentage']}*\n\n" \
+                           "📌 Для того, чтобы изменить процент, введи значение в числовое значение от 1 до 100 " \
+                           "и не равное текущему. В противном случае отмени действие."
 
                 elif mode == 'add-service':
                     value = 'данные'
@@ -1305,13 +1574,24 @@ class Texts:
                                     "📌 Для того, чтобы изменить название сервиса, введи новое, " \
                                     "на которое хочешь заменить. В противном случае отмени действие.\n\n" \
                                     "🔽 Введи название 🔽"
-
                         case 'domain':
-                            text += "*Изменение домена*\n\n" \
-                                    f"📍 Текущий домен: {service['domain']}\n\n" \
-                                    "📌 Для того, чтобы изменить домен сервиса, введи новый, " \
-                                    "на который хочешь заменить. В противном случае отмени действие.\n\n" \
-                                    "🔽 Введи домен 🔽"
+                            match data['action']:
+                                case 'add':
+                                    text += "*Добавление домена*\n\n" \
+                                            "📌 Для того, чтобы добавить домен сервису, введи новое доменное имя, " \
+                                            "которое ещё не используется. В противном случае отмени действие.\n\n" \
+                                            "🔽 Введи домен 🔽"
+                                case 'delete':
+                                    domains = self.handler.format('str', 'admin', 'domains', domains=service['domains'])
+                                    text += "*Удаление домена*\n\n" \
+                                            "*Домены*" \
+
+                                    if domains is None:
+                                        text += "\n - Доменов ещё нет 🤷🏻‍♂️"
+                                    else:
+                                        text += f"{domains}\n\n" \
+                                                "📌 Для того, чтобы удалить домен, нажми на кнопку соответствующую " \
+                                                "домену, который хочешь удалить. В противном случае вернись назад."
 
                 elif mode == 'send-message':
                     steps = 0
@@ -1410,15 +1690,42 @@ class Texts:
                         f"📁 Путь: `{data['path']}`\n" \
                         f"📄 Файл: `{data['file']}`"
 
+            case 'deposit-accepted':
+                currency = self.handler.file('read', 'settings')['main']['currency']
+                payment = data['payment']
+                text += "✅ *Успешный платёж*\n" \
+                        f"🔔 Твой платёж успешно оплачен, деньги зачислены на счёт.\n\n" \
+                        f"*Информация о платеже*\n" \
+                        f"🆔 Уникальный ID: `{payment['id']}`\n" \
+                        f"⚙️ Статус: {self.handler.recognition('emoji', 'status', status=payment['status'])} " \
+                        f"*{self.configs['payments']['statuses'][payment['status']].capitalize()}*\n" \
+                        f"🗓 Дата: *{datetime.now().strftime('%H:%M:%S / %d.%m.%Y')}*\n" \
+                        f"💰 Сумма: *{payment['amount']} {currency}*\n"
+
             case 'deposit-expired':
                 text += "⚠️ *Внимание* ⚠️\n\n" \
                         f"🔔 Твой платёж с уникальным ID `{data['id']}` автоматически завершён. " \
-                        f"Чтобы создать ещё один платёж на пополнение баланса, " \
-                        f"перейди в раздел *«Баланс»* и нажми *«Депозит»*."
+                        "Чтобы создать ещё один платёж на пополнение баланса, " \
+                        "перейди в раздел *«Баланс»* и нажми *«Депозит»*."
 
-            case 'deposit-closed':
-                text += "Платёж отклонён\n\n" \
-                        f"🔔 Твой платёж успешно отклонен"
+            case 'deposit-canceled':
+                if option == 'user':
+                    text += "❌ Платёж отклонён ❌\n\n" \
+                            f"🔔 Твой платёж успешно отклонен "
+                elif option == 'admin':
+                    text += "❌ *Платёж отклонён* ❌\n\n" \
+                            f"🔔 Твой платёж с уникальным ID `{data['payment']}` был отклонён администратором. " \
+                            f"Причину отмены платежа можешь спросить у поддержки сервиса."
+
+            case 'new-accrual':
+                currency = self.handler.file('read', 'settings')['main']['currency']
+                user, referral = data['user'], data['referral']
+                text = "💰 *Новое начисление* 💰\n\n" \
+                       "🔔 Поступило новое начисление от пополнениие баланса рефералом.\n\n" \
+                       "*Информация о начислении*\n" \
+                       f"👤 Реферал: [{referral['name']}](tg://user?id={referral['id']})\n\n" \
+                       f"🗓 Дата: *{datetime.now().strftime('%H:%M:%S / %d.%m.%Y')}*\n" \
+                       f"💰 Сумма: *{data['amount']} {currency}* ({user['percentage']}%)"
 
             case 'group':
                 match option:
@@ -1439,7 +1746,7 @@ class Texts:
                         currency = self.handler.file('read', 'settings')['main']['currency']
                         text += "💸 *Новое пополнение* 💸\n\n" \
                                 f"🔔 Пользователь [{data['name']}](tg://user?id={data['id']}) | ID:{data['id']} " \
-                                f"успешно пополнил совй баланс на *{data['summary']} {currency}*."
+                                f"успешно пополнил свой баланс на *{data['summary']} {currency}*."
 
                     case 'messaging':
                         text += "📥 *Результаты рассылки* 📤\n\n" \
@@ -1503,6 +1810,11 @@ class Texts:
                         "для решения текущего вопроса.\n\n" \
                         "🔽 Обратиться в поддержку 🔽"
 
+            case 'no-access':
+                text += "У тебя нет прав на просмотр этого раздела. Есл считаешь, что это ошибка - " \
+                        "обратись в поддержку.\n" \
+                        "🔽 Обратиться в поддержку 🔽"
+
             case 'empty':
                 values = {'first': None, 'second': None, 'third': None}
 
@@ -1510,6 +1822,10 @@ class Texts:
                     case 'users':
                         values['first'], values['second'], values['third'] = \
                             "пользователей", "пользователя", "пользователь"
+
+                    case 'payments':
+                        values['first'], values['second'], values['third'] = \
+                            "платежей", "платежа", "платёж"
 
                 text = "❌ *Нечего искать* ❌\n\n" \
                        f"⚠️ К сожалению база {values['first']} ещё пуста, не добавлено ни единого " \
@@ -1521,8 +1837,11 @@ class Texts:
                     case 'service-title':
                         text = f"Сервис с таким названием уже добавлен ({data['title']})."
                     case 'service-domain':
-                        service = self.database.get_data_by_value('services', 'domain', data['domain'])[0]['name']
-                        text = f"Домен {data['domain']} уже есть в базе данных и он принадлежит сервису *{service}*."
+                        service = self.handler.format('str', 'admin', 'domain-service', domain=data['domain'])
+                        text += f"Домен {data['domain']} уже есть в базе данных и он принадлежит сервису *{service}*."
+            case 'more':
+                text += f"Значение должно быть *не более {data['value'] if 'value' in data.keys() else 100}*. " \
+                        f"Попробуй ещё раз или же отмени действие."
 
             case 'same':
                 text += f"Значение *{data['value']}* не должно совпадать с текущим. " \
@@ -1531,10 +1850,14 @@ class Texts:
             case 'less':
                 text += f"Значение должно быть *не менее {data['value'] if 'value' in data.keys() else 1}*. " \
                         f"Попробуй ещё раз или же отмени действие."
+
             case 'not-exist':
                 match option:
                     case 'user':
                         text += f"Пользователь с идентификатором {data['id']} не найден."
+                    case 'payment':
+                        text += f"Платёж с уникальным идентификатором {data['id']} не найден."
+
             case 'not-found':
                 value = None
 
@@ -1554,6 +1877,20 @@ class Texts:
             case 'not-string':
                 text += "Значение должно быть в текстовом формате. Введи значение ещё раз или отмени действие."
 
+            case 'unavailable-or-incorrect':
+                text += f"Значение *{data['value']}* указано не правильно или же временно недоступно. " \
+                        "Введи значение ещё раз или отмени действие."
+
+            case 'incorrect-status':
+                match option:
+                    case 'payment':
+                        text += f"У платежа с уникальным ID: {data['id']} не подходящий статус " \
+                                f"«{self.configs['payments']['statuses'][data['status']].capitalize()}». " \
+                                f"Управлять можно только платежами которые " \
+                                f"находятся в статусе «В обработке».\n\n" \
+                                f"📌  Перепроверь данные или введи идентификатор другого платежа, " \
+                                f"в противном случае отмени действие."
+
         return text
 
     def success(self, mode, option=None, **data):
@@ -1565,29 +1902,34 @@ class Texts:
 
                 if option == 'user':
                     text += f"Пользователь с идентификатором «*{data['id']}*» был успешно найден, формируем данные..."
+                elif option == 'payment':
+                    text += f"Платёж с идентификатором «*{data['id']}*» был успешно найден, формируем данные..."
+
             case 'updated-data':
-                if option == 'add-balance':
-                    text += "Средства успешно добавлены. Формируем данные..."
-                elif option == 'change-balance':
-                    text += "Баланс успешно обновлен. Формируем данные..."
-                elif option == 'service-title':
-                    text += f"Название сервиса успешно изменено с *{data['old']}* на *{data['new']}*"
-                elif option == 'service-domain':
-                    text += f"Домен сервиса успешно изменён с *{data['old']}* на *{data['new']}*"
-                elif option == 'subscription-price':
-                    text += f"Цена подписки успешно изменена с *{data['old']}* на *{data['new']} {data['currency']}*"
-                elif 'project' in option:
+                if 'project' in option:
                     option = option.split('-')[-1]
 
                     match option:
                         case 'percentage':
                             text += f"Общий реферальный процент успешно изменён с *{data['old']}*  на *{data['new']}*"
                         case 'currency':
-                            text += f"Валюта успешно изменена с *{data['old']}*  на *{data['new']}*"
+                            text += f"Валюта успешно изменена с *{data['old']}* на *{data['new']}*"
                         case 'cryptocurrency':
-                            text += f"Криптовалюта успешно изменена с *{data['old']}*  на *{data['new']}*"
-
-
+                            text += f"Криптовалюта успешно изменена с *{data['old']}* на *{data['new']}*"
+                else:
+                    match option:
+                        case 'add-balance':
+                            text += "Средства успешно добавлены. Формируем данные..."
+                        case 'change-balance':
+                            text += "Баланс успешно обновлен. Формируем данные..."
+                        case 'change-percentage':
+                            text += "Процент успешно обновлен. Формируем данные..."
+                        case 'service-title':
+                            text += f"Название сервиса успешно изменено с *{data['old']}* на *{data['new']}*"
+                        case 'service-domain':
+                            text += f"Домен *{data['domain']}* успешно добавлен сервису {data['service']}"
+                        case 'subscription-price':
+                            text += f"Цена подписки успешно изменена с *{data['old']}* на *{data['new']} {data['currency']}*"
 
         return text
 
@@ -1662,6 +2004,7 @@ class Buttons:
                             types.KeyboardButton('👨🏻‍💻 Пользователи'),
                             types.KeyboardButton('🛠 Сервисы'),
                             types.KeyboardButton('🛍 Подписки'),
+                            types.KeyboardButton('💰 Финансы'),
                             types.KeyboardButton('⭐️ Проект')
                         )
 
@@ -1679,6 +2022,7 @@ class Buttons:
                         items = {
                             '⛔️ Блокировка': {'type': 'control', 'action': 'ban'},
                             '💰 Баланс': {'type': 'control', 'action': 'balance'},
+                            '🧮 Процент': {'type': 'update', 'action': 'percentage'},
                             '😎 Привилегии': {'type': 'control', 'action': 'privileges'}
                         }
 
@@ -1719,6 +2063,7 @@ class Buttons:
                         markup = str(markup).replace('\'', '"')
 
                     case 'services':
+                        print(len(self.database.get_data('services')))
                         markup.add(
                             types.KeyboardButton('➕ Добавить'),
                             types.KeyboardButton('⚙️ Управлять') if len(self.database.get_data('services')) > 0 else ''
@@ -1733,8 +2078,8 @@ class Buttons:
                         items = {
                             mode: {'type': 'set', 'action': 'status'},
                             '📍 Название': {'type': 'update', 'action': 'title'},
-                            '🔗 Домен': {'type': 'update', 'action': 'domain'},
-                            '➖ Удалить сервис': {'type': 'delete', 'action': 'data'}
+                            '🔗 Домены': {'type': 'control', 'action': 'domains'},
+                            '❌ Удалить сервис': {'type': 'delete', 'action': 'data'}
                         }
 
                         for name, values in items.items():
@@ -1776,6 +2121,35 @@ class Buttons:
                             if len(row) != 0:
                                 markup.keyboard.append(row)
 
+                    case 'finances':
+                        markup.add(
+                            types.KeyboardButton('💳 Платежи'),
+                            types.KeyboardButton('🪙 Начисления')
+                        )
+
+                    case 'payments':
+                        comeback = 'финансам'
+                        payments = self.handler.format('dict', 'payments', 'deposits')
+
+                        if payments['total'] > 0:
+                            markup.add(
+                                types.KeyboardButton('👁 Посмотреть платежи'),
+                            )
+
+                            if len(payments['pending']) > 0:
+                                markup.add(types.KeyboardButton('🛠 Управлять'))
+
+                    case 'payment':
+                        comeback, payment = False, data['payment']
+
+                        if payment['status'] == 'pending':
+                            markup.add(
+                                types.InlineKeyboardButton(
+                                    "🟢 Принять", callback_data=f"set-payment-{payment['id']}-status-success"),
+                                types.InlineKeyboardButton(
+                                    "🔴 Отклонить", callback_data=f"set-payment-{payment['id']}-status-error")
+                            )
+
                     case 'project':
                         markup.add(
                             types.KeyboardButton('🗞 Логи'),
@@ -1794,7 +2168,8 @@ class Buttons:
                         comeback = 'проекту'
                         markup.add(
                             types.KeyboardButton("🪙 Валюта"),
-                            types.KeyboardButton("🧮 Процент")
+                            types.KeyboardButton("🧮 Процент"),
+                            types.KeyboardButton('🔗 Домены')
                         )
             case 'user':
                 match menu:
@@ -1805,6 +2180,16 @@ class Buttons:
                             types.KeyboardButton('⭐️ Подписки'),
                             types.KeyboardButton('🗞 Информация')
                         )
+            case 'promoter':
+                match menu:
+                    case 'main':
+                        markup.add(
+                            types.KeyboardButton('👥 Пользователи'),
+                            types.KeyboardButton('💸 Начисления')
+                        )
+
+                        if self.database.get_data_by_value('users', 'id', data['user'])[0]['balance'] > 0:
+                            markup.add(types.KeyboardButton('💰 Запросить выплату'))
 
         if comeback:
             if markups_type == 'reply':
@@ -1903,16 +2288,24 @@ class Buttons:
                     case 'services':
                         match step:
                             case 1:
-                                services = self.database.get_data('services')
+                                services = data['services'] if 'services' in data.keys() \
+                                    else self.database.get_data('services')
+
                                 width = data['width'] if 'width' in data.keys() else 2
                                 markup, markups, row, additional = dict(), list(), list(), dict()
 
                                 for service in services:
                                     if len(row) < width:
-                                        row.append({
-                                            'text': service['name'],
-                                            'callback_data': f"select-admin-service-{service['name']}"
-                                        })
+                                        if type(service) is dict:
+                                            row.append({
+                                                'text': service['name'],
+                                                'callback_data': f"select-admin-service-{service['name']}"
+                                            })
+                                        elif type(service) is str and 'domain' in data.keys():
+                                            row.append({
+                                                'text': service,
+                                                'callback_data': f"select-service-{service}-domain-{data['domain']}"
+                                            })
 
                                     if len(row) == width:
                                         markups.append(row)
@@ -1921,9 +2314,87 @@ class Buttons:
                                     if len(row) != 0:
                                         markups.append(row)
 
+                                if 'domain' in data.keys():
+                                    markups.append([{
+                                        'text': '↩️ Назад',
+                                        'callback_data': f"comeback-to-domain-control-{data['domain']}"
+                                    }])
                                 markup['inline_keyboard'] = markups
                                 markup = str(markup).replace('\'', '"')
 
+                    case 'domains':
+                        if 'service' in data.keys():
+                            service = self.database.get_data_by_value('services', 'name', data['service'])[0]
+                            domains = ast.literal_eval(service['domains'])
+
+                            if 'action' in data.keys() and data['action'] == 'delete':
+                                width = data['width'] if 'width' in data.keys() else 2
+                                i, markup, markups, row, additional = 0, dict(), list(), list(), dict()
+
+                                for domain in domains:
+                                    value = i if '-' in domain else domain.replace('/', ' ').split()[1]
+                                    if len(row) < width:
+                                        row.append({
+                                            'text': domain.replace('/', ' ').split()[1],
+                                            'callback_data': f"delete-domain-{value}-service-{service['name']}"
+                                        })
+
+                                    if len(row) == width:
+                                        markups.append(row)
+                                        row = list()
+
+                                    i += 1
+                                else:
+                                    if len(row) != 0:
+                                        markups.append(row)
+
+                                markups.append([{
+                                    'text': '↩️ Назад',
+                                    'callback_data': f"comeback-to-service-control-domains-{service['name']}"
+                                }])
+                                markup['inline_keyboard'] = markups
+                                markup = str(markup).replace('\'', '"')
+                            else:
+
+                                query = f"update-service-{service['name']}"
+                                comeback = f"comeback-to-service-control-{service['name']}"
+
+                                markup.add(types.InlineKeyboardButton("➕ Добавить", callback_data=f"{query}-add-domain"))
+
+                                if len(domains) > 0:
+                                    markup.add(types.InlineKeyboardButton("➖ Удалить", callback_data=f"{query}-delete-domain"))
+
+                                markup.add(types.InlineKeyboardButton("↩️ Назад", callback_data=comeback))
+                        else:
+                            domains = self.handler.format('list', 'domains')
+                            width = data['width'] if 'width' in data.keys() else 5
+                            i, markup, markups, row, additional = 1, dict(), list(), list(), dict()
+
+                            for domain in domains:
+                                if len(row) < width:
+                                    row.append({'text': i, 'callback_data': f"select-domain-{domain}"})
+
+                                if len(row) == width:
+                                    markups.append(row)
+                                    row = list()
+
+                                i += 1
+                            else:
+                                if len(row) != 0:
+                                    markups.append(row)
+
+                            markup['inline_keyboard'] = markups
+                            markup = str(markup).replace('\'', '"')
+
+                    case 'domain':
+                        markup.add(
+                            types.InlineKeyboardButton(
+                                "⚙️ Изменить сервис", callback_data=f"update-domain-{data['domain']}"),
+                            types.InlineKeyboardButton(
+                                "❌ Удалить домен", callback_data=f"delete-domain-{data['domain']}"),
+                        )
+                        markup.add(
+                            types.InlineKeyboardButton("↩️ Назад", callback_data=f"comeback-to-domain-selection"))
                     case 'subscription':
                         if 'users' in data.keys() and data['users']:
                             query = f"get-subscription-{data['subscription']}-users"
@@ -1942,6 +2413,33 @@ class Buttons:
                         if 'comeback' in data.keys():
                             markup.add(types.InlineKeyboardButton(
                                 "↩️ Назад", callback_data=f"comeback-{data['comeback']}"))
+
+                    case 'payments':
+                        payments = self.handler.format('dict', 'payments', 'deposits')
+                        del payments['total']
+                        width = data['width'] if 'width' in data.keys() else 2
+                        markup, markups, row, additional = dict(), list(), list(), dict()
+
+                        markups.append([{'text': '📌 Все', 'callback_data': 'get-payments-all'}])
+                        for payments_status, payments_data in payments.items():
+                            if len(row) < width:
+                                if len(payments_data) > 0:
+                                    text = f"{self.handler.recognition('emoji', 'status', status=payments_status)} " \
+                                           f"{self.configs['payments']['statuses'][payments_status].capitalize()}"
+                                    row.append({
+                                        'text': text,
+                                        'callback_data': f"get-payments-{payments_status}"
+                                    })
+
+                            if len(row) == width:
+                                markups.append(row)
+                                row = list()
+                        else:
+                            if len(row) != 0:
+                                markups.append(row)
+
+                        markup['inline_keyboard'] = markups
+                        markup = str(markup).replace('\'', '"')
 
                     case 'currencies':
                         markup.add(types.InlineKeyboardButton("▫️ Валюта", callback_data='update-project-currency'))
@@ -1962,7 +2460,9 @@ class Buttons:
 if __name__ == '__main__':
     _configs = Configs().initialization()
     _database = Database(_configs)
-    # _database.recreate_table()
+
+    _database.recreate_table()
+
     # _database.add_data(
     #     'mailings',
     #     id='test234244375675',
@@ -1975,6 +2475,7 @@ if __name__ == '__main__':
     #     })
     # )
 
+    # logs
     # i = 1
     # while i < 15:
     #     user = 1603149905 if random.randint(0, 1) else random.randint(111111111, 999999999)
@@ -1985,4 +2486,14 @@ if __name__ == '__main__':
     #     )
     #     i += 1
 
+    # payments
+    # _i = 1
+    # _users = _database.get_data('users')
+    #
+    # while _i <= 10:
+    #     _database.add_data('payments', id=f'test{random.randint(1, 999)}', type='deposit',
+    #                        user=random.choice(_users)['id'], amount=random.randint(10, 1000),
+    #                        expiration=datetime.now() + timedelta(days=1))
+    #     _i += 1
+    #
 

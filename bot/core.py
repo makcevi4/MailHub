@@ -38,6 +38,10 @@ class Configs:
         },
         'statuses': {'active': 'активна', 'inactive': 'неактивна'}
     }
+    requests = {
+        'types': {'withdraw': 'вывод'},
+        'statuses': {'accepted': 'принята', 'processing': 'в обработке', 'rejected': 'отклонена'}
+    }
     mailings = {
         'types': {},
         'statuses': {'success': "успешно", 'waiting': "ожидание", 'error': "ошибка"}
@@ -82,13 +86,14 @@ class Configs:
         configs['services'] = self.services
         configs['payments'] = self.payments
         configs['subscriptions'] = self.subscriptions
+        configs['requests'] = self.requests
         configs['mailings'] = self.mailings
 
         return configs
 
 
 class Database:
-    tables = ['logs', 'users', 'subscriptions', 'payments', 'services', 'mailings']
+    tables = ['logs', 'users', 'subscriptions', 'payments', 'services', 'requests', 'mailings']
 
     def __init__(self, configs):
         self.configs = configs
@@ -176,6 +181,17 @@ class Database:
                     `name` VARCHAR(255) NOT NULL,
                     `domains` TEXT NOT NULL,
                     `status` VARCHAR(255) NOT NULL
+                    )"""
+
+                case 'requests':
+                    query = f"""
+                    CREATE TABLE `{table}` (
+                    `id` VARCHAR(255) NOT NULL,
+                    `date` DATETIME NOT NULL,
+                    `type` VARCHAR(255) NOT NULL,
+                    `status` VARCHAR(255) NOT NULL,
+                    `user` VARCHAR (255) NOT NULL,
+                    `data` TEXT NOT NULL
                     )"""
 
                 case 'mailings':
@@ -313,6 +329,15 @@ class Database:
                         query = f"""
                         INSERT INTO `{table}` (`name`, `domains`, `status`)
                         VALUES ('{items['name']}', '{domains}', '{status}')
+                        """
+
+                    case 'requests':
+                        status = list(self.configs['requests']['statuses'].keys())[1]
+                        query = f"""
+                        INSERT INTO `{table}` (`id`, `date`, `type`, `status`, `user`, `data`)
+                        VALUES (
+                        '{items['id']}', '{datetime.now()}', '{items['type']}', 
+                        '{status}', {items['user']}, '{items['data']}')
                         """
 
                     case 'mailings':
@@ -767,6 +792,13 @@ class Handler:
 
                             for domain in domains:
                                 result.append(domain.replace('/', ' ').split()[1])
+                    case 'requests':
+                        if 'user' in data.keys():
+                            array = self.database.get_data_by_value('requests', 'user', data['user'])
+
+                            for request in array:
+                                if request['type'] == value:
+                                    result.append(request)
 
                     case 'promoter':
                         if value == 'accruals':
@@ -920,7 +952,7 @@ class Handler:
                     if answer['status'] == 'success':
                         result = {'city': answer['city'], 'country': answer['country']}
 
-                if option == 'title':
+                elif option == 'title':
                     items = data['items']
                     call, markups = items.data, items.message.json['reply_markup']['inline_keyboard']
 
@@ -928,6 +960,24 @@ class Handler:
                         for markup in column:
                             if call == markup['callback_data']:
                                 result = markup['text'].split()[-1]
+
+                elif option == 'privilege':
+                    user = self.database.get_data_by_value('users', 'id', data['user'])[0]
+                    privileges = ast.literal_eval(user['privileges'])
+
+                    if data['privilege'] in privileges:
+                        result = True
+                    else:
+                        result = False
+
+                elif option == 'active-withdraw-requests':
+                    withdraws = self.format('list', 'requests', 'withdraw', user=data['user'])
+
+                    for request in withdraws:
+                        if request['status'] == 'processing':
+                            result = request
+                            break
+
 
             case 'usertype':
                 result = 'admin' if data['user'] in self.configs['main']['admins'] else 'user'
@@ -1171,12 +1221,18 @@ class Texts:
                         text += "*Промоутинг*\n\n" \
                                 f"🤝 Приглашено: *" \
                                 f"{len(self.database.get_data_by_value('users', 'inviter', user['id']))}*\n" \
-                                f"💸 Начислений: *{0}*\n" \
+                                f"💸 Начислений: *{len(self.handler.format('dict', 'payments', 'accruals')['data'])}*\n" \
                                 f"💰 Доступно к выводу: *{user['balance']}*\n" \
                                 f"🔗 Ссылка на приглашение: " \
                                 f"`https://t.me/{self.configs['bot']['login']}?start={user['id']}`\n\n" \
-                                f"Доступные действия:" \
-                                f"Просмотр"
+                                "📍 Доступные действия:\n" \
+                                "1️⃣ Просмотр приглашенных пользователей\n" \
+                                "2️⃣ Просмотр начислений\n"
+
+                        if user['balance'] > 0:
+                            text += "3️⃣ Запрос выплаты средств\n"
+
+                        text += "\n🔽 Выбери действие 🔽"
         return text
 
     def show(self, mode, additional=None, amount=5, reverse=True, option=None, **data):
@@ -1677,6 +1733,37 @@ class Texts:
                                    "В противном  случае отмени действие.\n\n" \
                                    "🔽 Введи значение 🔽"
 
+                    case 'get-withdraw':
+                        action = 'Введи данные'
+                        settings = self.handler.file('read', 'settings')['main']
+                        cryptocurrency, currency = settings['cryptocurrency'], settings['currency']
+
+                        amount = f"{data['amount']} {currency}" \
+                            if 'amount' in data.keys() and data['amount'] is not None else "Не указана"
+                        wallet = f"`{data['wallet']}`" \
+                            if 'wallet' in data.keys() and data['wallet'] is not None else "*Не указан*"
+                        text += f"*Запрос выплаты ({step}/3)*\n\n"
+
+                        if 'error' in data.keys() and data['error'] is not None:
+                            text += f"⚠️ {data['error']}️\n\n"
+
+                        text += f"💰 Сумма: *{amount}*\n" \
+                                f"👛 Кошелёк ({cryptocurrency}): {wallet}\n\n"
+
+                        match step:
+                            case 1:
+                                text += f"📌 Введи сумму в {currency}, которую хочешь вывести"
+                                action = "Введи сумму"
+
+                            case 2:
+                                text += f"📌 Введи {cryptocurrency}-кошелёк, на который хочешь вывести средства"
+                                action = "Введи кошелёк"
+
+                            case 3:
+                                text += f"📌 Перепроверь и подтверди данные"
+                                action = "Подтверди данные"
+
+                        text += f"\n\n🔽 {action} 🔽"
         return text
 
     def notifications(self, mode, option=None, **data):
@@ -1797,7 +1884,7 @@ class Texts:
 
         return text
 
-    def error(self, mode, option=None, **data):
+    def error(self, mode, option=None, embedded=False, **data):
         text = "🚫 *Ошибка*\n\n⚠️ "
 
         match mode:
@@ -1840,16 +1927,26 @@ class Texts:
                         service = self.handler.format('str', 'admin', 'domain-service', domain=data['domain'])
                         text += f"Домен {data['domain']} уже есть в базе данных и он принадлежит сервису *{service}*."
             case 'more':
-                text += f"Значение должно быть *не более {data['value'] if 'value' in data.keys() else 100}*. " \
+                error = f"Значение должно быть *не более {data['value'] if 'value' in data.keys() else 100}*. " \
                         f"Попробуй ещё раз или же отмени действие."
+
+                if embedded:
+                    text = error
+                else:
+                    text += error
 
             case 'same':
                 text += f"Значение *{data['value']}* не должно совпадать с текущим. " \
                         f"Попробуй ещё раз или же отмени действие."
 
             case 'less':
-                text += f"Значение должно быть *не менее {data['value'] if 'value' in data.keys() else 1}*. " \
+                error = f"Значение должно быть *не менее {data['value'] if 'value' in data.keys() else 1}*. " \
                         f"Попробуй ещё раз или же отмени действие."
+
+                if embedded:
+                    text = error
+                else:
+                    text += error
 
             case 'not-exist':
                 match option:
@@ -1872,7 +1969,12 @@ class Texts:
                         "ещё раз в формате https://yourdomain.com."
 
             case 'not-numeric':
-                text += "Значение должно быть в числовом формате. Введи значение ещё раз или отмени действие."
+                error = "Значение должно быть в числовом формате. Введи значение ещё раз или отмени действие."
+
+                if embedded:
+                    text = error
+                else:
+                    text += error
 
             case 'not-string':
                 text += "Значение должно быть в текстовом формате. Введи значение ещё раз или отмени действие."
@@ -1931,6 +2033,29 @@ class Texts:
                         case 'subscription-price':
                             text += f"Цена подписки успешно изменена с *{data['old']}* на *{data['new']} {data['currency']}*"
 
+            case 'sent-request':
+                match option:
+                    case 'withdraw':
+                        text += "Запрос на вывод средств был успешно отправлен и в ближайшее время будет рассмотрен " \
+                                "администрацией сервиса.\n\n" \
+                                f"{self.check('withdraw', withdraw=data['id'])}"
+
+        return text
+
+    def check(self, mode, **data):
+        text = str()
+        match mode:
+            case 'withdraw':
+                withdraw = self.database.get_data_by_value('requests', 'id', data['withdraw'])[0]
+                withdraw_data = ast.literal_eval(withdraw['data'])
+                text = "*Данные заявки*\n" \
+                       f"🆔 Уникальный ID: `{withdraw['id']}`\n" \
+                       f"⚙️ Статус: {self.handler.recognition('emoji', 'status', status=withdraw['status'])} " \
+                       f"{self.configs['requests']['statuses'][withdraw['status']].capitalize()}\n" \
+                       f"💰 Сумма: *{withdraw_data['amount']} {withdraw_data['currency']}*\n" \
+                       f"👛 Кошелёк ({withdraw_data['cryptocurrency']}): `{withdraw_data['wallet']}`\n\n" \
+                       f"🔽 Обновить статус 🔽"
+
         return text
 
 
@@ -1974,6 +2099,17 @@ class Buttons:
         return markup.add(types.InlineKeyboardButton(
             '↩️ Назад' if text is None else f'↩️ Назад к {text}', callback_data=query))
 
+    @staticmethod
+    def check(query, text=None, **data):
+        markup = types.InlineKeyboardMarkup()
+        text = f"👁 Проверить{'' if text is None else ' ' + text}"
+        markup.add(types.InlineKeyboardButton(text, callback_data=f"check-{query}"))
+
+        if 'menu' in data.keys():
+            markup.add(types.InlineKeyboardButton(
+                '↩️ Вернуться в меню', callback_data=f"comeback-to-menu-{data['menu']}"))
+
+        return markup
     @staticmethod
     def confirm(action, **data):
         markup = types.InlineKeyboardMarkup()

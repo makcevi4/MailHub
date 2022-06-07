@@ -73,35 +73,46 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
             # Buttons handling | Comeback
             if '↩️ Назад к' in message.text:
-                sessions.clear(message.from_user.id)
+                text, markups = str(), str()
 
                 if usertype == 'admin':
                     if 'админ панели' in message.text:
-                        bot.send_message(message.from_user.id, texts.menu('admin', 'main'),
-                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'main'))
+                        text = texts.menu('admin', 'main')
+                        markups = buttons.menu('admin', 'main')
 
                     elif 'пользователям' in message.text:
-                        bot.send_message(message.from_user.id, texts.menu('admin', 'users'),
-                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'users'))
+                        text = texts.menu('admin', 'users')
+                        markups = buttons.menu('admin', 'users')
+
                     elif 'финансам' in message.text:
-                        bot.send_message(message.from_user.id, texts.menu('admin', 'finances'),
-                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'finances'))
+                        text = texts.menu('admin', 'finances')
+                        markups = buttons.menu('admin', 'finances')
 
                     elif 'меню платежей' in message.text:
-                        bot.send_message(message.from_user.id, texts.menu('admin', 'payments'),
-                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'payments'))
+                        text = texts.menu('admin', 'payments')
+                        markups = buttons.menu('admin', 'payments')
 
                     elif 'проекту' in message.text:
-                        bot.send_message(message.from_user.id, texts.menu('admin', 'project'),
-                                         parse_mode='markdown', reply_markup=buttons.menu('admin', 'project'))
+                        text = texts.menu('admin', 'project')
+                        markups = buttons.menu('admin', 'project')
 
                 if 'главной панели' in message.text:
-                    bot.send_message(message.chat.id, texts.menu('user', 'main', user=message.from_user.id),
-                                     parse_mode='markdown', reply_markup=buttons.menu('user', 'main'))
+                    text = texts.menu('user', 'main', user=message.from_user.id)
+                    markups = buttons.menu('user', 'main')
+
+                try:
+                    bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
+                except ApiTelegramException:
+                    pass
+
+                sessions.clear(message.from_user.id)
 
             # Buttons handling | Cancel
             if '❌ Отменить' in message.text:
                 text, markups = str(), str()
+                promoter = handler.recognition('user', 'privilege', user=message.from_user.id, privilege='promoter')
+                print(promoter)
+
                 if usertype == 'admin':
                     if 'поиск' in message.text:
                         if 'пользователя' in message.text:
@@ -117,8 +128,8 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         markups = buttons.menu('admin', 'services')
 
                     elif 'формировку сообщения' in message.text:
-                            text = texts.menu('admin', 'messaging')
-                            markups = buttons.menu('admin', 'messaging')
+                        text = texts.menu('admin', 'messaging')
+                        markups = buttons.menu('admin', 'messaging')
 
                     elif 'изменение цены' in message.text:
                         if message.from_user.id in sessions.admins:
@@ -147,7 +158,19 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                         text = texts.control('admin', 'currencies'),
                         markups = buttons.control('admin', 'currencies')
 
-                bot.send_message(message.from_user.id, text, parse_mode='markdown', reply_markup=markups)
+                if usertype == 'admin' or promoter:
+                    if 'запрос вывода' in message.text:
+                        bot.send_message(
+                            message.chat.id, texts.menu('promoter', 'main', user=message.from_user.id),
+                            parse_mode='markdown',
+                            reply_markup=buttons.menu('promoter', 'main', user=message.from_user.id))
+
+
+                try:
+                    bot.send_message(message.from_user.id, text, parse_mode='markdown', reply_markup=markups)
+                except ApiTelegramException:
+                    pass
+
                 sessions.clear(message.from_user.id)
 
             #  - ADMIN
@@ -854,7 +877,86 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
             # Action | Request | Withdraw
             if message.text == '💰 Запросить выплату' and promoter:
-                print('do')
+                result = handler.recognition('user', 'active-withdraw-requests', user=message.from_user.id)
+
+                if result is None:
+                    sessions.start(message.from_user.id, 'user', 'get-withdraw', message.message_id)
+                    sessions.users[message.from_user.id]['actions']['step'] += 1
+                    delete = bot.send_message(message.from_user.id, texts.processes('user', 'get-withdraw', step=1),
+                                              parse_mode='markdown', reply_markup=buttons.cancel_reply('запрос вывода'))
+                    sessions.users[message.from_user.id]['message']['delete'] = delete.id
+
+                else:
+                    # --- WARNING ---
+                    print(result)
+                    # --- WARNING ---
+
+            # Handling | Get withdraw
+            if message.from_user.id in sessions.users \
+                    and sessions.users[message.from_user.id]['type'] == 'get-withdraw':
+                if sessions.users[message.from_user.id]['message']['id'] != message.message_id:
+                    text, markups, amount, wallet = str(), str(), None, None
+                    user = database.get_data_by_value('users', 'id', message.from_user.id)[0]
+                    step = sessions.users[message.from_user.id]['actions']['step']
+                    delete = sessions.users[message.from_user.id]['message']['delete']
+
+                    bot.delete_message(message.chat.id, message.id)
+
+                    match step:
+                        case 1:
+                            try:
+                                amount, text_error = int(message.text), None
+
+                                if amount < 1:
+                                    text_error = texts.error('less', embedded=True)
+
+                                elif amount > user['balance']:
+                                    currency = handler.file('read', 'settings')['main']['currency']
+                                    value = f"{int(user['balance'])} ({currency})"
+                                    text_error = texts.error('more', value=value, embedded=True)
+
+                                else:
+                                    step += 1
+                                    sessions.users[message.from_user.id]['actions']['data']['amount'] = amount
+
+                                text = texts.processes('user', 'get-withdraw', step=step, error=text_error,
+                                                       amount=amount, wallet=wallet)
+                                if text_error is not None:
+                                    markups = buttons.cancel_reply('запрос вывода')
+                                else:
+                                    markups = buttons.comeback_inline('to-get-withdraw')
+
+                            except ValueError:
+                                text_error = texts.error('not-numeric', embedded=True)
+                                text = texts.processes('user', 'get-withdraw', step=1, error=text_error)
+                                markups = buttons.cancel_reply('запрос вывода')
+                        case 2:
+                            step += 1
+                            wallet = message.text
+                            amount = sessions.users[message.from_user.id]['actions']['data']['amount']
+                            sessions.users[message.from_user.id]['actions']['data']['wallet'] = wallet
+
+                            text = texts.processes('user', 'get-withdraw', step=step, amount=amount, wallet=wallet)
+                            markups = buttons.confirm('request-withdraw', comeback='to-get-withdraw')
+
+                    sessions.users[message.from_user.id]['actions']['step'] = step
+
+                    try:
+                        bot.edit_message_text(chat_id=message.chat.id, message_id=delete, parse_mode='markdown',
+                                              text=text, reply_markup=markups)
+                    except ApiTelegramException:
+                        bot.delete_message(message.chat.id, delete)
+                        delete = bot.send_message(message.chat.id, text, parse_mode='markdown', reply_markup=markups)
+
+                        if message.from_user.id in sessions.users:
+                            sessions.users[message.from_user.id]['message']['delete'] = delete.id
+
+
+
+
+
+
+
 
     @bot.callback_query_handler(func=lambda call: True)
     def queries_handler(call):
@@ -911,6 +1013,12 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     elif queries[-2] == 'privileges' and queries[-1] == 'control':
                         text = texts.control('user', 'privileges', id=int(queries[3]))
                         markups = buttons.control('user', 'privileges', id=int(queries[3]))
+                elif 'to-menu' in call.data:
+                    match queries[-1]:
+                        case 'promoter':
+                            bot.send_message(call.from_user.id, texts.menu('promoter', 'main', user=call.from_user.id),
+                                             parse_mode='markdown',
+                                             reply_markup=buttons.menu('promoter', 'main', user=call.from_user.id))
 
                 elif 'to-service-control' in call.data:
                     service = database.get_data_by_value('services', 'name', queries[-1])[0]
@@ -939,10 +1047,6 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                             case 'title':
                                 text = texts.processes('admin', 'add-service', step=step)
                                 markups = buttons.cancel_reply('добавление сервиса')
-                            # case 'domain':
-                            #     title = sessions.admins[call.from_user.id]['actions']['data']['title']
-                            #     text = texts.processes('admin', 'add-service', step=step, title=title)
-                            #     markups = buttons.comeback_inline('to-set-service-title')
 
                         sessions.admins[call.from_user.id]['actions']['step'] = step
 
@@ -994,9 +1098,31 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     text = texts.menu('admin', 'settings')
                     markups = buttons.menu('admin', 'settings')
 
-                elif 'to-domain-selection':
+                elif 'to-domain-selection' in call.data:
                     text = texts.control('admin', 'domains')
                     markups = buttons.control('admin', 'domains')
+
+                elif 'to-get-withdraw' in call.data:
+                    if call.from_user.id in sessions.users:
+                        sessions.users[call.from_user.id]['actions']['step'] -= 1
+                        step = sessions.users[call.from_user.id]['actions']['step']
+
+                        match step:
+                            case 1:
+                                text = texts.processes('user', 'get-withdraw', step=step)
+                                markups = buttons.cancel_reply('запрос вывода')
+                            case 2:
+                                amount = sessions.users[call.from_user.id]['actions']['data']['amount']
+                                text = texts.processes('user', 'get-withdraw', step=step, amount=amount)
+                                markups = buttons.comeback_inline('to-get-withdraw')
+
+
+                    else:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+                        bot.send_message(call.from_user.id, texts.menu('promoter', 'main', user=call.from_user.id),
+                                         parse_mode='markdown',
+                                         reply_markup=buttons.menu('promoter', 'main', user=call.from_user.id))
+
 
 
                 try:
@@ -1009,6 +1135,10 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
 
                         if call.from_user.id in sessions.admins:
                             sessions.admins[call.from_user.id]['message']['delete'] = delete.id
+
+                        if call.from_user.id in sessions.users:
+                            sessions.users[call.from_user.id]['message']['delete'] = delete.id
+
 
                     except ApiTelegramException:
                         bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
@@ -1033,6 +1163,35 @@ def run(bot, configs, sessions, database, merchant, handler, texts, buttons):
                     else:
                         bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
                         bot.delete_message(call.from_user.id, call.message.id)
+
+                if 'request' in call.data:
+                    if call.from_user.id in sessions.users:
+
+                        match queries[-1]:
+                            case 'withdraw':
+                                settings = handler.file('read', 'settings')['main']
+
+                                data = sessions.users[call.from_user.id]['actions']['data']
+                                data['currency'] = settings['currency']
+                                data['cryptocurrency'] = settings['cryptocurrency']
+
+                                identifier = handler.generate('unique-id')
+                                database.add_data('requests', id=identifier, type=queries[-1],
+                                                  user=call.from_user.id, data=json.dumps(data))
+
+                                text = texts.success('sent-request', 'withdraw', id=identifier)
+                                markups = buttons.check(f'status-withdraw-{identifier}', menu='promoter')
+
+
+
+                                sessions.clear(call.from_user.id)
+
+                    else:
+                        bot.answer_callback_query(callback_query_id=call.id, text='❎ Действие устарело')
+                        bot.delete_message(call.from_user.id, call.message.id)
+                        bot.send_message(call.from_user.id, texts.menu('promoter', 'main', user=call.from_user.id),
+                                         parse_mode='markdown',
+                                         reply_markup=buttons.menu('promoter', 'main', user=call.from_user.id))
 
                 try:
                     bot.edit_message_text(chat_id=call.from_user.id, message_id=call.message.id,

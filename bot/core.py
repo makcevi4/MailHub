@@ -23,7 +23,7 @@ from redis.exceptions import ConnectionError
 class Configs:
     users = {'admin': 'администратор', 'user': 'пользователь'}
     payments = {
-        'types':{'deposit': 'депозит'},
+        'types': {'deposit': 'депозит'},
         'statuses': {'accepted': "принято", 'processing': "в процессе", 'rejected': "отклонено"}}
     subscriptions = {
         'types': {
@@ -1060,10 +1060,7 @@ class Buttons:
     @staticmethod
     def comeback_inline(action, text=None, **data):
         markup = types.InlineKeyboardMarkup()
-        try:
-            query = f"comeback-{action}-{data['id']}"
-        except KeyError:
-            query = f"comeback-{action}"
+        query = f"comeback-{action}-{data['id']}" if 'id' in data.keys() else f"comeback-{action}"
 
         return markup.add(types.InlineKeyboardButton(
             '↩️ Назад' if text is None else f'↩️ Назад к {text}', callback_data=query))

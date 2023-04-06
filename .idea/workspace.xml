@@ -2,13 +2,21 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="77f18118-55f6-4ebf-bc31-8ef5b5aa46f5" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/MailHub.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/MailHub.iml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/bot/default.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/dataSources.local.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/dataSources.local.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot/bot.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/bot.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/bot/core.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/core.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bot/sources/data/configs.ini" beforeDir="false" afterPath="$PROJECT_DIR$/bot/sources/data/configs.ini" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/web/sources/scripts/php/core.php" beforeDir="false" afterPath="$PROJECT_DIR$/web/sources/scripts/php/core.php" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/bot/test.py" beforeDir="false" afterPath="$PROJECT_DIR$/bot/test.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/Inpost_files/logo_gmail_server_1x.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/Inpost_files/unnamed(1).png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/Inpost_files/unnamed.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/inpost.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/olx.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/olx_files/unnamed.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/vinted.html" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/vinted_files/logo_gmail_server_1x.png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/vinted_files/unnamed(1).png" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/mail_templates/vinted_files/unnamed.png" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -49,6 +57,16 @@
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="ASKED_ADD_EXTERNAL_FILES" value="true" />
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="com.intellij.ide.scratch.ScratchImplUtil$2/New Scratch File" value="JSON" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="settings.editor.selected.configurable" value="preferences.customizations" />
+    <property name="vue.rearranger.settings.migration" value="true" />
   </component>
   <component name="RecentsManager">
     <key name="MoveFile.RECENT_KEYS">
@@ -122,6 +140,28 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <configuration name="send" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="MailHub" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$USER_HOME$/AppData/Local/Temp/fz3temp-2" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="SCRIPT_NAME" value="$USER_HOME$/AppData/Local/Temp/fz3temp-2/send.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
     <configuration name="test" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="MailHub" />
       <option name="INTERPRETER_OPTIONS" value="" />
@@ -165,6 +205,22 @@
       <workItem from="1653346869873" duration="8960000" />
       <workItem from="1653386523847" duration="5267000" />
       <workItem from="1653420027627" duration="4282000" />
+      <workItem from="1655464266921" duration="506000" />
+      <workItem from="1655566558789" duration="1056000" />
+      <workItem from="1655886615251" duration="597000" />
+      <workItem from="1655965644190" duration="12615000" />
+      <workItem from="1656267687744" duration="1056000" />
+      <workItem from="1656271709202" duration="31878000" />
+      <workItem from="1656744961688" duration="53000" />
+      <workItem from="1656745023885" duration="1548000" />
+      <workItem from="1656749440860" duration="1000" />
+      <workItem from="1656756660956" duration="2098000" />
+      <workItem from="1656760722248" duration="624000" />
+      <workItem from="1656772741595" duration="191000" />
+      <workItem from="1656773106768" duration="10000" />
+      <workItem from="1657177424164" duration="13559000" />
+      <workItem from="1657522301874" duration="63784000" />
+      <workItem from="1657720795028" duration="2697000" />
     </task>
     <servers />
   </component>
@@ -183,13 +239,15 @@
     </option>
     <option name="oldMeFiltersMigrated" value="true" />
   </component>
+  <component name="VcsManagerConfiguration">
+    <option name="ADD_EXTERNAL_FILES_SILENTLY" value="true" />
+  </component>
   <component name="XSLT-Support.FileAssociations.UIState">
     <expand />
     <select />
   </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/MailHub$run.coverage" NAME="run Coverage Results" MODIFIED="1653495391014" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/bot" />
-    <SUITE FILE_PATH="coverage/MailHub$run__1_.coverage" NAME="run (1) Coverage Results" MODIFIED="1653460292755" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/../../Projects/Scripts/Answer" />
-    <SUITE FILE_PATH="coverage/MailHub$core.coverage" NAME="core Coverage Results" MODIFIED="1653463238034" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/bot" />
+    <SUITE FILE_PATH="coverage/index_html$send.coverage" NAME="send Coverage Results" MODIFIED="1656772170212" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$USER_HOME$/AppData/Local/Temp/fz3temp-2" />
+    <SUITE FILE_PATH="coverage/index_html$test.coverage" NAME="test Coverage Results" MODIFIED="1657794359598" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="true" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/bot" />
   </component>
 </project>
